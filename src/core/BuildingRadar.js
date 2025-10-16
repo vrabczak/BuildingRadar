@@ -82,7 +82,7 @@ export class BuildingRadar {
 
             if (this.isIOSStandalone()) {
                 this.ui.hideLoading();
-                this.ui.showError('Pro povolení polohy klepněte na tlačítko Retry');
+                this.ui.showError('For location access, please tap Retry');
                 this.ui.updateGPSStatus('disconnected');
                 return;
             }
