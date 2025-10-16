@@ -1,0 +1,36 @@
+{
+    "files.associations": {
+        "*.js": "javascript"
+    },
+    "emmet.includeLanguages": {
+        "javascript": "javascriptreact"
+    },
+    "javascript.preferences.includePackageJsonAutoImports": "auto",
+    "javascript.suggest.autoImports": true,
+    "typescript.preferences.includePackageJsonAutoImports": "auto",
+    "typescript.suggest.autoImports": true,
+    "eslint.workingDirectories": [
+        "src"
+    ],
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+        "source.fixAll.eslint": "explicit"
+    },
+    "files.exclude": {
+        "**/dist": false,
+        "**/.git": true,
+        "**/.DS_Store": true
+    },
+    "search.exclude": {
+        "**/node_modules": true,
+        "**/dist": true
+    },
+    "live-server.settings.port": 9000,
+    "live-server.settings.CustomBrowser": "chrome",
+    "live-server.settings.donotShowInfoMsg": true,
+    "html.format.indentInnerHtml": true,
+    "css.validate": true,
+    "javascript.validate.enable": true,
+    "debug.console.fontSize": 14,
+    "debug.console.fontFamily": "Consolas, 'Courier New', monospace"
+}

@@ -1,0 +1,35 @@
+{
+    "name": "Building Radar",
+    "short_name": "BuildingRadar",
+    "description": "GPS-based building airborne radar application",
+    "start_url": "/BuildingRadar/",
+    "display": "standalone",
+    "background_color": "#1a1a1a",
+    "theme_color": "#00ff00",
+    "orientation": "portrait",
+    "scope": "/BuildingRadar/",
+    "icons": [
+        {
+            "src": "/BuildingRadar/icons/icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any"
+        },
+        {
+            "src": "/BuildingRadar/icons/icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any"
+        }
+    ],
+    "categories": [
+        "navigation",
+        "utilities"
+    ],
+    "permissions": [
+        "geolocation"
+    ],
+    "features": [
+        "cross-origin-isolated"
+    ]
+}

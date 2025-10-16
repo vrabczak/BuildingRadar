@@ -1,0 +1,14 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Build & Run in Chrome",
+            "type": "chrome",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "url": "file:///${workspaceFolder}/dist/index.html",
+            "webRoot": "${workspaceFolder}/dist",
+            "userDataDir": "${workspaceFolder}/.vscode/chrome-debug-profile"
+        }
+    ]
+}
