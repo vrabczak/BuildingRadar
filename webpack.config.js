@@ -83,6 +83,18 @@ module.exports = {
                         console.warn('Could not copy PWA icons:', error.message);
                     }
 
+                    // Copy buildings.geojson
+                    try {
+                        const buildingsContent = fs.readFileSync('./dist/buildings.geojson', 'utf8');
+                        compilation.assets['buildings.geojson'] = {
+                            source: () => buildingsContent,
+                            size: () => buildingsContent.length
+                        };
+                        console.log('buildings.geojson copied successfully');
+                    } catch (error) {
+                        console.warn('Could not copy buildings.geojson:', error.message);
+                    }
+
                     callback();
                 });
             }
@@ -93,6 +105,10 @@ module.exports = {
             {
                 test: /\.css$/i,
                 use: ['style-loader', 'css-loader']
+            },
+            {
+                test: /\.geojson$/i,
+                type: 'json'
             }
         ]
     },
