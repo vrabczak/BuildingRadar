@@ -1,6 +1,6 @@
 import './styles.css';
 import { BuildingRadar } from './core/BuildingRadar.js';
-import buildingsData from '../dist/buildings.geojson';
+import buildingsData from './buildings.geojson';
 
 /**
  * Register service worker for offline support

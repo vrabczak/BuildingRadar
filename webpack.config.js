@@ -85,7 +85,7 @@ module.exports = {
 
                     // Copy buildings.geojson
                     try {
-                        const buildingsContent = fs.readFileSync('./dist/buildings.geojson', 'utf8');
+                        const buildingsContent = fs.readFileSync('./src/buildings.geojson', 'utf8');
                         compilation.assets['buildings.geojson'] = {
                             source: () => buildingsContent,
                             size: () => buildingsContent.length
