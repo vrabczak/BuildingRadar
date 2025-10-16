@@ -154,6 +154,30 @@ export class BuildingRadar {
         return R * c;
     }
 
+    isIOSStandalone() {
+        const ua = navigator.userAgent || navigator.vendor || window.opera;
+        const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        const isStandalone = (window.navigator.standalone === true) || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+        return isIOS && isStandalone;
+    }
+
+    async startGPSWithPrompt() {
+        try {
+            this.ui.showLoading('Spouštím GPS...');
+            this.ui.updateGPSStatus('connecting');
+            await this.gps.start();
+            if (!this.updateInterval) {
+                this.startUpdateLoop();
+            }
+            this.isRunning = true;
+            this.ui.hideLoading();
+            this.ui.hideError();
+        } catch (error) {
+            this.ui.showError(error.message || 'Nepodařilo se spustit GPS');
+            this.ui.updateGPSStatus('disconnected');
+        }
+    }
+
     /**
      * Start update loop (refreshes every second)
      */
