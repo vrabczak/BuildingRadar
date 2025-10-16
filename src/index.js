@@ -1,6 +1,6 @@
 import './styles.css';
 import { BuildingRadar } from './core/BuildingRadar.js';
-import { DataLoader } from './core/SettingsManager.js';
+import { DataLoader } from './core/DataLoader.js';
 
 /**
  * Register service worker for offline support

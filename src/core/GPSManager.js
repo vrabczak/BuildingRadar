@@ -1,5 +1,6 @@
+// TEMP FILE - WILL BE REPLACED
 /**
- * GPSManager - Handles geolocation with maximum precision and refresh rate
+ * GPSManager - Handles GPS tracking and location updates
  */
 export class GPSManager {
     constructor(settings = {}) {
@@ -119,7 +120,7 @@ export class GPSManager {
         const parsedPosition = this.parsePosition(position);
         this.lastPosition = parsedPosition;
 
-        console.log('GPS position update:', parsedPosition);
+        //console.log('GPS position update:', parsedPosition);
         this.emit('position', parsedPosition);
     }
 

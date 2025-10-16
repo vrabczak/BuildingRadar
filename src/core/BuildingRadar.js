@@ -2,6 +2,7 @@ import { GPSManager } from './GPSManager.js';
 import { DisplayManager } from './DisplayManager.js';
 import { UIManager } from './UIManager.js';
 import { SettingsManager } from './SettingsManager.js';
+import { SpatialIndex } from './SpatialIndex.js';
 
 /**
  * Main BuildingRadar class - Core application controller
@@ -16,6 +17,10 @@ export class BuildingRadar {
         this.display = new DisplayManager('radarCanvas', {
             radarRange: this.settings.get('radarRange')
         });
+
+        // Initialize spatial index for fast queries
+        this.spatialIndex = new SpatialIndex();
+        this.spatialIndex.indexFeatures(buildingsData);
 
         this.updateInterval = null;
         this.isRunning = false;
@@ -91,7 +96,7 @@ export class BuildingRadar {
      * Handle GPS position update
      */
     handlePositionUpdate(position) {
-        console.log('Position update:', position);
+        //console.log('Position update:', position);
 
         // Update display with new position
         this.display.updatePosition(position);
