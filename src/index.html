@@ -15,6 +15,16 @@
         <!-- Radar Canvas -->
         <canvas id="radarCanvas"></canvas>
         
+        <!-- File Input Modal -->
+        <div id="fileInputModal" class="modal">
+            <div class="modal-content">
+                <h2>Load Building Data</h2>
+                <p>Select a shapefile (.shp or .zip) from your local drive</p>
+                <input type="file" id="shapefileInput" accept=".shp,.zip" />
+                <div id="fileStatus" class="file-status"></div>
+            </div>
+        </div>
+        
         <!-- Status Bar -->
         <div id="statusBar">
             <div id="gpsStatus" class="status-item">
@@ -34,7 +44,6 @@
         <!-- Error Message -->
         <div id="errorMessage" class="hidden">
             <p id="errorText"></p>
-            <button id="retryButton">Retry</button>
         </div>
         
         <!-- Loading Indicator -->

@@ -5,7 +5,8 @@
     -webkit-tap-highlight-color: transparent;
 }
 
-html, body {
+html,
+body {
     width: 100%;
     height: 100%;
     overflow: hidden;
@@ -153,8 +154,13 @@ html, body {
 }
 
 @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
 }
 
 #loadingIndicator p {
@@ -169,11 +175,11 @@ html, body {
         padding: 16px 24px;
         font-size: 16px;
     }
-    
+
     .status-label {
         font-size: 12px;
     }
-    
+
     .status-value {
         font-size: 16px;
     }
@@ -200,4 +206,81 @@ body {
     -moz-user-select: none;
     -ms-user-select: none;
     user-select: none;
+}
+
+/* File Input Modal */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.95);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal.hidden {
+    display: none;
+}
+
+.modal-content {
+    background: #1a1a1a;
+    border: 2px solid #00ff00;
+    border-radius: 12px;
+    padding: 32px;
+    max-width: 500px;
+    width: 90%;
+    text-align: center;
+}
+
+.modal-content h2 {
+    color: #00ff00;
+    margin-bottom: 16px;
+    font-size: 24px;
+}
+
+.modal-content p {
+    color: #ffffff;
+    margin-bottom: 24px;
+    font-size: 14px;
+}
+
+#shapefileInput {
+    width: 100%;
+    padding: 12px;
+    background: #0a0a0a;
+    border: 2px solid #00ff00;
+    border-radius: 8px;
+    color: #00ff00;
+    font-size: 16px;
+    cursor: pointer;
+    margin-bottom: 16px;
+}
+
+#shapefileInput::-webkit-file-upload-button {
+    background: #00ff00;
+    color: #000000;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.file-status {
+    color: #ffffff;
+    font-size: 14px;
+    min-height: 20px;
+    margin-top: 12px;
+}
+
+.file-status.success {
+    color: #00ff00;
+}
+
+.file-status.error {
+    color: #ff0000;
 }

@@ -2,6 +2,7 @@ const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const HtmlInlineScriptPlugin = require('html-inline-script-webpack-plugin');
 const { LimitChunkCountPlugin } = require('webpack').optimize;
+const webpack = require('webpack');
 
 module.exports = {
     entry: './src/index.js',
@@ -10,6 +11,11 @@ module.exports = {
         path: path.resolve(__dirname, 'dist'),
         publicPath: '',
         clean: true
+    },
+    resolve: {
+        fallback: {
+            "buffer": require.resolve("buffer/")
+        }
     },
     mode: 'production',
     devtool: false,
@@ -30,6 +36,9 @@ module.exports = {
                 minifyCSS: true,
                 minifyURLs: true,
             },
+        }),
+        new webpack.ProvidePlugin({
+            Buffer: ['buffer', 'Buffer'],
         }),
         new LimitChunkCountPlugin({ maxChunks: 1 }),
         new HtmlInlineScriptPlugin(),
@@ -81,18 +90,6 @@ module.exports = {
                         console.log('PWA icons copied successfully');
                     } catch (error) {
                         console.warn('Could not copy PWA icons:', error.message);
-                    }
-
-                    // Copy buildings.geojson
-                    try {
-                        const buildingsContent = fs.readFileSync('./src/buildings.geojson', 'utf8');
-                        compilation.assets['buildings.geojson'] = {
-                            source: () => buildingsContent,
-                            size: () => buildingsContent.length
-                        };
-                        console.log('buildings.geojson copied successfully');
-                    } catch (error) {
-                        console.warn('Could not copy buildings.geojson:', error.message);
                     }
 
                     callback();

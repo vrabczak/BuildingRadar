@@ -47,3 +47,5 @@ pids
 # Temporary files
 *.tmp
 *.temp
+
+buildings/

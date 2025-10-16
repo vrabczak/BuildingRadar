@@ -6,6 +6,10 @@
     "build": "webpack --mode production",
     "dev": "webpack --mode development --watch"
   },
+  "dependencies": {
+    "shpjs": "^4.0.4",
+    "buffer": "^6.0.3"
+  },
   "devDependencies": {
     "webpack": "^5.102.1",
     "webpack-cli": "^6.0.1",
