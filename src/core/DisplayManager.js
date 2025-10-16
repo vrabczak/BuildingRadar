@@ -49,10 +49,21 @@ export class DisplayManager {
 
         this.ctx.scale(dpr, dpr);
 
-        // Calculate center and radius
-        this.centerX = rect.width / 2;
-        this.centerY = rect.height / 2;
-        this.radius = Math.min(rect.width, rect.height) * 0.4;
+        // Get status bar height
+        const statusBar = document.getElementById('statusBar');
+        const statusBarHeight = statusBar ? statusBar.offsetHeight : 0;
+
+        // Calculate available space (excluding status bar)
+        const availableWidth = rect.width;
+        const availableHeight = rect.height - statusBarHeight;
+
+        // Center horizontally and vertically in available space
+        this.centerX = availableWidth / 2;
+        this.centerY = statusBarHeight + (availableHeight / 2);
+
+        // Calculate radius to fit in available space with padding
+        const maxRadius = Math.min(availableWidth, availableHeight) * 0.45;
+        this.radius = maxRadius;
     }
 
     /**
@@ -74,10 +85,8 @@ export class DisplayManager {
         this.drawRadarBackground();
         this.drawGrid();
         this.drawRangeCircles();
-        this.drawSweep();
         this.drawBuildings();
         this.drawCenter();
-        this.drawCompass();
     }
 
     /**
@@ -103,73 +112,55 @@ export class DisplayManager {
     }
 
     /**
-     * Draw grid lines
+     * Draw grid lines (fixed orientation - forward is always up)
      */
     drawGrid() {
         this.ctx.strokeStyle = this.settings.gridColor;
         this.ctx.lineWidth = 1;
 
-        // Draw crosshair (rotated based on heading)
-        this.ctx.save();
-        this.ctx.translate(this.centerX, this.centerY);
-        this.ctx.rotate(this.degreesToRadians(-this.heading));
-
-        // Vertical line (North-South)
+        // Vertical line (forward-backward)
         this.ctx.beginPath();
-        this.ctx.moveTo(0, -this.radius);
-        this.ctx.lineTo(0, this.radius);
+        this.ctx.moveTo(this.centerX, this.centerY - this.radius);
+        this.ctx.lineTo(this.centerX, this.centerY + this.radius);
         this.ctx.stroke();
 
-        // Horizontal line (East-West)
+        // Horizontal line (left-right)
         this.ctx.beginPath();
-        this.ctx.moveTo(-this.radius, 0);
-        this.ctx.lineTo(this.radius, 0);
+        this.ctx.moveTo(this.centerX - this.radius, this.centerY);
+        this.ctx.lineTo(this.centerX + this.radius, this.centerY);
         this.ctx.stroke();
-
-        this.ctx.restore();
     }
 
     /**
-     * Draw range circles
+     * Draw range circles with labels
      */
     drawRangeCircles() {
         this.ctx.strokeStyle = this.settings.gridColor;
         this.ctx.lineWidth = 1;
 
         // Draw circles at 250m, 500m, 750m, 1000m
-        const ranges = [0.25, 0.5, 0.75, 1.0];
+        const ranges = [
+            { ratio: 0.25, label: '250m' },
+            { ratio: 0.5, label: '500m' },
+            { ratio: 0.75, label: '750m' },
+            { ratio: 1.0, label: '1km' }
+        ];
+
         ranges.forEach(range => {
-            const r = this.radius * range;
+            const r = this.radius * range.ratio;
+
+            // Draw circle
             this.ctx.beginPath();
             this.ctx.arc(this.centerX, this.centerY, r, 0, Math.PI * 2);
             this.ctx.stroke();
+
+            // Draw label at top of circle
+            this.ctx.fillStyle = '#ffffff';
+            this.ctx.font = '12px Arial';
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'bottom';
+            this.ctx.fillText(range.label, this.centerX, this.centerY - r - 5);
         });
-    }
-
-    /**
-     * Draw radar sweep effect
-     */
-    drawSweep() {
-        this.sweepAngle = (this.sweepAngle + 2) % 360;
-
-        this.ctx.save();
-        this.ctx.translate(this.centerX, this.centerY);
-        this.ctx.rotate(this.degreesToRadians(this.sweepAngle));
-
-        // Draw sweep gradient
-        const gradient = this.ctx.createLinearGradient(0, 0, 0, -this.radius);
-        gradient.addColorStop(0, 'rgba(0, 255, 0, 0)');
-        gradient.addColorStop(0.5, 'rgba(0, 255, 0, 0.1)');
-        gradient.addColorStop(1, 'rgba(0, 255, 0, 0.3)');
-
-        this.ctx.beginPath();
-        this.ctx.moveTo(0, 0);
-        this.ctx.arc(0, 0, this.radius, -Math.PI / 6, Math.PI / 6);
-        this.ctx.closePath();
-        this.ctx.fillStyle = gradient;
-        this.ctx.fill();
-
-        this.ctx.restore();
     }
 
     /**
@@ -249,58 +240,14 @@ export class DisplayManager {
         this.ctx.fill();
         this.ctx.shadowBlur = 0;
 
-        // Draw direction indicator (triangle pointing up)
-        this.ctx.save();
-        this.ctx.translate(this.centerX, this.centerY);
-        this.ctx.rotate(this.degreesToRadians(-this.heading));
-
+        // Draw direction indicator (triangle pointing up - forward direction)
         this.ctx.beginPath();
-        this.ctx.moveTo(0, -15);
-        this.ctx.lineTo(-6, -5);
-        this.ctx.lineTo(6, -5);
+        this.ctx.moveTo(this.centerX, this.centerY - 15);
+        this.ctx.lineTo(this.centerX - 6, this.centerY - 5);
+        this.ctx.lineTo(this.centerX + 6, this.centerY - 5);
         this.ctx.closePath();
         this.ctx.fillStyle = this.settings.centerColor;
         this.ctx.fill();
-
-        this.ctx.restore();
-    }
-
-    /**
-     * Draw compass indicator
-     */
-    drawCompass() {
-        const compassRadius = 30;
-        const compassX = this.centerX;
-        const compassY = 50;
-
-        // Draw compass circle
-        this.ctx.beginPath();
-        this.ctx.arc(compassX, compassY, compassRadius, 0, Math.PI * 2);
-        this.ctx.strokeStyle = this.settings.radarColor;
-        this.ctx.lineWidth = 2;
-        this.ctx.stroke();
-
-        // Draw North indicator
-        this.ctx.save();
-        this.ctx.translate(compassX, compassY);
-        this.ctx.rotate(this.degreesToRadians(-this.heading));
-
-        this.ctx.beginPath();
-        this.ctx.moveTo(0, -compassRadius + 5);
-        this.ctx.lineTo(-5, -compassRadius + 15);
-        this.ctx.lineTo(5, -compassRadius + 15);
-        this.ctx.closePath();
-        this.ctx.fillStyle = this.settings.radarColor;
-        this.ctx.fill();
-
-        // Draw 'N' label
-        this.ctx.fillStyle = this.settings.radarColor;
-        this.ctx.font = 'bold 12px Arial';
-        this.ctx.textAlign = 'center';
-        this.ctx.textBaseline = 'middle';
-        this.ctx.fillText('N', 0, -compassRadius + 25);
-
-        this.ctx.restore();
     }
 
     /**
