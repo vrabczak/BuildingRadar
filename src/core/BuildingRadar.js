@@ -59,7 +59,11 @@ export class BuildingRadar {
 
         // UI events
         this.ui.addEventListener('retry', () => {
-            this.restart();
+            if (!this.gps.isActive()) {
+                this.startGPSWithPrompt();
+            } else {
+                this.restart();
+            }
         });
     }
 
@@ -71,16 +75,19 @@ export class BuildingRadar {
             this.ui.showLoading('Initializing GPS...');
             this.ui.updateGPSStatus('connecting');
 
-            // Load buildings data
             if (this.buildingsData && this.buildingsData.features) {
                 console.log(`Loaded ${this.buildingsData.features.length} buildings`);
                 this.display.updateBuildings(this.buildingsData.features);
             }
 
-            // Start GPS tracking
-            await this.gps.start();
+            if (this.isIOSStandalone()) {
+                this.ui.hideLoading();
+                this.ui.showError('Pro povolení polohy klepněte na tlačítko Retry');
+                this.ui.updateGPSStatus('disconnected');
+                return;
+            }
 
-            // Start update loop
+            await this.gps.start();
             this.startUpdateLoop();
             this.isRunning = true;
 
