@@ -174,7 +174,7 @@ export class DisplayManager {
             const buildingLat = coords[1];
             const buildingLon = coords[0];
 
-            // Calculate distance and bearing from user to building
+            // Calculate distance for radar display
             const distance = this.calculateDistance(
                 this.userPosition.latitude,
                 this.userPosition.longitude,
@@ -182,44 +182,41 @@ export class DisplayManager {
                 buildingLon
             );
 
-            // Only draw if within radar range
-            if (distance <= this.settings.radarRange) {
-                const bearing = this.calculateBearing(
-                    this.userPosition.latitude,
-                    this.userPosition.longitude,
-                    buildingLat,
-                    buildingLon
-                );
+            const bearing = this.calculateBearing(
+                this.userPosition.latitude,
+                this.userPosition.longitude,
+                buildingLat,
+                buildingLon
+            );
 
-                // Adjust bearing relative to user heading (front is up)
-                const relativeBearing = bearing - this.heading;
+            // Adjust bearing relative to user heading (front is up)
+            const relativeBearing = bearing - this.heading;
 
-                // Convert to radar coordinates
-                const radarCoords = this.polarToCartesian(
-                    distance,
-                    relativeBearing,
-                    this.settings.radarRange,
-                    this.radius
-                );
+            // Convert to radar coordinates
+            const radarCoords = this.polarToCartesian(
+                distance,
+                relativeBearing,
+                this.settings.radarRange,
+                this.radius
+            );
 
-                // Draw building dot
-                this.ctx.beginPath();
-                this.ctx.arc(
-                    this.centerX + radarCoords.x,
-                    this.centerY - radarCoords.y, // Negative Y because canvas Y increases downward
-                    4,
-                    0,
-                    Math.PI * 2
-                );
-                this.ctx.fillStyle = this.settings.buildingColor;
-                this.ctx.fill();
+            // Draw building dot
+            this.ctx.beginPath();
+            this.ctx.arc(
+                this.centerX + radarCoords.x,
+                this.centerY - radarCoords.y, // Negative Y because canvas Y increases downward
+                4,
+                0,
+                Math.PI * 2
+            );
+            this.ctx.fillStyle = this.settings.buildingColor;
+            this.ctx.fill();
 
-                // Add glow effect
-                this.ctx.shadowBlur = 10;
-                this.ctx.shadowColor = this.settings.buildingColor;
-                this.ctx.fill();
-                this.ctx.shadowBlur = 0;
-            }
+            // Add glow effect
+            this.ctx.shadowBlur = 10;
+            this.ctx.shadowColor = this.settings.buildingColor;
+            this.ctx.fill();
+            this.ctx.shadowBlur = 0;
         });
     }
 

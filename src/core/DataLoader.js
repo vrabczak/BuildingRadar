@@ -185,23 +185,10 @@ export class DataLoader {
         const file = event.target.files[0];
         if (!file) return;
 
-        // Check file size on mobile devices
-        if (this.isMobileDevice() && file.size > this.maxFileSizeMobile) {
-            const sizeMB = (file.size / 1024 / 1024).toFixed(1);
-            const maxMB = (this.maxFileSizeMobile / 1024 / 1024).toFixed(0);
-            const proceed = confirm(
-                `Warning: This file is ${sizeMB}MB which may cause issues on mobile devices (recommended max: ${maxMB}MB). ` +
-                `The app may become slow or crash. Continue anyway?`
-            );
-            if (!proceed) {
-                this.fileInput.value = ''; // Clear the file input
-                return;
-            }
-        }
-
-        // Additional warning for older iPads with very large files
-        if (this.isOlderiPad() && file.size > 20 * 1024 * 1024) {
-            this.showStatus('⚠ Large file detected. Processing may take a while...', 'loading');
+        // Show processing status for large files
+        const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+        if (file.size > 50 * 1024 * 1024) {
+            this.showStatus(`Loading ${sizeMB}MB file, please wait...`, 'loading');
         } else {
             this.showStatus('Reading file...', 'loading');
         }

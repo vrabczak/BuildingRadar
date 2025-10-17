@@ -4,8 +4,7 @@ const STATIC_CACHE_NAME = 'building-radar-static';
 const urlsToCache = [
     '/BuildingRadar/',
     '/BuildingRadar/index.html',
-    '/BuildingRadar/manifest.json',
-    '/BuildingRadar/buildings.geojson'
+    '/BuildingRadar/manifest.json'
 ];
 
 // Check for updates periodically (reduced frequency to avoid issues on older devices)

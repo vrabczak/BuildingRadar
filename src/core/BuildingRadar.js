@@ -77,7 +77,8 @@ export class BuildingRadar {
 
             if (this.buildingsData && this.buildingsData.features) {
                 console.log(`Loaded ${this.buildingsData.features.length} buildings`);
-                this.display.updateBuildings(this.buildingsData.features);
+                // Initially no buildings visible until GPS position is received
+                this.display.updateBuildings([]);
             }
 
             if (this.isIOSStandalone()) {
@@ -111,27 +112,27 @@ export class BuildingRadar {
         // Update UI with accuracy
         this.ui.updateAccuracy(position.accuracy);
 
-        // Calculate visible buildings
+        // Calculate visible buildings using spatial index
         this.updateVisibleBuildings(position);
     }
 
     /**
-     * Update visible buildings within radar range
+     * Update visible buildings within radar range using spatial index
      */
     updateVisibleBuildings(position) {
         if (!this.buildingsData || !this.buildingsData.features) return;
 
         const radarRange = this.settings.get('radarRange');
-        this.visibleBuildings = this.buildingsData.features.filter(building => {
-            const coords = building.geometry.coordinates;
-            const distance = this.calculateDistance(
-                position.latitude,
-                position.longitude,
-                coords[1],
-                coords[0]
-            );
-            return distance <= radarRange;
-        });
+
+        // Use spatial index for fast query (much faster than filtering all features)
+        this.visibleBuildings = this.spatialIndex.queryRadius(
+            position.longitude,
+            position.latitude,
+            radarRange
+        );
+
+        // Update display with visible buildings only
+        this.display.updateBuildings(this.visibleBuildings);
 
         this.ui.updateBuildingCount(this.visibleBuildings.length);
     }
