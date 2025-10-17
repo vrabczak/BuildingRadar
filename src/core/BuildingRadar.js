@@ -163,7 +163,7 @@ export class BuildingRadar {
 
     async startGPSWithPrompt() {
         try {
-            this.ui.showLoading('Spouštím GPS...');
+            this.ui.showLoading('Starting GPS...');
             this.ui.updateGPSStatus('connecting');
             await this.gps.start();
             if (!this.updateInterval) {
@@ -173,7 +173,15 @@ export class BuildingRadar {
             this.ui.hideLoading();
             this.ui.hideError();
         } catch (error) {
-            this.ui.showError(error.message || 'Nepodařilo se spustit GPS');
+            console.error('GPS start error:', error);
+            let errorMsg = error.message || 'Failed to start GPS';
+
+            // Provide iOS-specific guidance for permission issues
+            if (this.isIOSStandalone() && errorMsg.includes('denied')) {
+                errorMsg = 'Location denied. Go to Settings > Safari > Location Services > Allow';
+            }
+
+            this.ui.showError(errorMsg);
             this.ui.updateGPSStatus('disconnected');
         }
     }

@@ -8,8 +8,11 @@ const urlsToCache = [
     '/BuildingRadar/buildings.geojson'
 ];
 
-// Check for updates periodically
-const UPDATE_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
+// Check for updates periodically (reduced frequency to avoid issues on older devices)
+const UPDATE_CHECK_INTERVAL = 30 * 60 * 1000; // 30 minutes
+
+// Track update check interval ID
+let updateCheckIntervalId = null;
 
 // Install event - cache resources
 self.addEventListener('install', (event) => {
@@ -53,6 +56,12 @@ self.addEventListener('activate', (event) => {
 
 // Function to check for updates
 async function checkForUpdates() {
+    // Skip update check if offline
+    if (!self.navigator.onLine) {
+        console.log('Device is offline, skipping update check');
+        return;
+    }
+
     try {
         console.log('Checking for updates...');
 
@@ -103,11 +112,22 @@ function notifyClientsOfUpdate() {
 
 // Start periodic update checks
 function startUpdateChecks() {
-    // Check immediately
-    checkForUpdates();
+    // Check immediately if online
+    if (self.navigator.onLine) {
+        checkForUpdates();
+    }
 
     // Then check periodically
-    setInterval(checkForUpdates, UPDATE_CHECK_INTERVAL);
+    updateCheckIntervalId = setInterval(checkForUpdates, UPDATE_CHECK_INTERVAL);
+}
+
+// Stop periodic update checks
+function stopUpdateChecks() {
+    if (updateCheckIntervalId) {
+        clearInterval(updateCheckIntervalId);
+        updateCheckIntervalId = null;
+        console.log('Update checks stopped (device offline)');
+    }
 }
 
 // Enhanced fetch event with network-first strategy for HTML
@@ -174,11 +194,32 @@ self.addEventListener('fetch', (event) => {
     );
 });
 
+// Listen for online/offline events to manage update checks
+self.addEventListener('online', () => {
+    console.log('Device is online, resuming update checks');
+    // Check for updates immediately when coming online
+    checkForUpdates();
+    // Restart periodic checks if not already running
+    if (!updateCheckIntervalId) {
+        startUpdateChecks();
+    }
+});
+
+self.addEventListener('offline', () => {
+    console.log('Device is offline, pausing update checks');
+    stopUpdateChecks();
+});
+
 // Listen for messages from the main thread
 self.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'SKIP_WAITING') {
         self.skipWaiting();
     } else if (event.data && event.data.type === 'CHECK_UPDATE') {
-        checkForUpdates();
+        // Only check if online
+        if (self.navigator.onLine) {
+            checkForUpdates();
+        } else {
+            console.log('Manual update check requested but device is offline');
+        }
     }
 });
