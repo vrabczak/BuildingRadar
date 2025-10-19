@@ -9,12 +9,19 @@ export class DataLoader {
         this.fileStatus = document.getElementById('fileStatus');
         this.modal = document.getElementById('fileInputModal');
         this.controlBar = document.getElementById('controlBar');
+        this.clearDataButton = document.getElementById('clearDataButton');
         this.storageKey = 'buildingRadarData';
         this.dbName = 'BuildingRadarDB';
         this.dbVersion = 1;
         this.maxFileSizeMobile = 50 * 1024 * 1024; // 50MB limit for mobile devices
         this.messageId = 0;
         this.pendingMessages = new Map();
+
+        console.log('DataLoader elements:', {
+            controlBar: !!this.controlBar,
+            clearDataButton: !!this.clearDataButton,
+            fileInput: !!this.fileInput
+        });
 
         this.setupEventListeners();
         this.initWorker();
@@ -223,7 +230,10 @@ export class DataLoader {
 
                     // Show control bar
                     if (this.controlBar) {
+                        console.log('🎮 Showing control bar');
                         this.controlBar.style.display = 'flex';
+                    } else {
+                        console.warn('Control bar element not found');
                     }
 
                     // Hide modal since we have data
@@ -245,6 +255,44 @@ export class DataLoader {
         return false;
     }
 
+    setupEventListeners() {
+        console.log('Setting up event listeners...');
+
+        this.fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
+        console.log('File input listener attached');
+
+        // Clear data button
+        console.log('clearDataButton element:', this.clearDataButton);
+
+        if (this.clearDataButton) {
+            console.log('✅ Clear data button found, attaching listener');
+
+            this.clearDataButton.addEventListener('click', async (e) => {
+                console.log('👆 Clear button clicked!', e);
+
+                if (confirm('Are you sure you want to clear all stored building data?')) {
+                    console.log('🗑️ User confirmed - clearing stored data...');
+                    await this.clearStoredData();
+
+                    if (this.controlBar) {
+                        this.controlBar.style.display = 'none';
+                    }
+                    this.showModal();
+
+                    // Reload page to reset app state
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                }
+            });
+
+            console.log('Clear button listener attached successfully');
+        } else {
+            console.warn('❌ Clear data button not found in DOM');
+        }
+
+        console.log('Event listeners setup complete');
+    }
 
     /**
      * Save buildings data to IndexedDB via Web Worker (non-blocking)
