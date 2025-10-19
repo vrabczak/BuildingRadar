@@ -27,8 +27,6 @@
                     <p>Select a shapefile (.shp or .zip) from your local drive</p>
                     <input type="file" id="shapefileInput" accept=".shp,.zip" />
                     <div id="fileStatus" class="file-status"></div>
-                    <button id="clearDataButton" class="clear-data-btn" style="display: none;">Clear Stored
-                        Data</button>
                 </div>
             </div>
 
@@ -46,6 +44,8 @@
                     <span class="status-label">Buildings:</span>
                     <span id="buildingCountValue" class="status-value">0</span>
                 </div>
+                <button id="clearDataButton" class="clear-data-btn-status" style="display: none;"
+                    title="Clear stored building data">🗑️</button>
             </div>
 
             <!-- Error Message -->

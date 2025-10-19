@@ -209,6 +209,19 @@ export class DataLoader {
                 const featureCount = this.buildingsData?.features?.length || 0;
                 if (featureCount > 0) {
                     console.log(`Restored ${featureCount} buildings from storage in ${elapsed}s`);
+
+                    // Show stored data info
+                    const metadata = await this.getStoredMetadata();
+                    if (metadata) {
+                        console.log(`📦 Stored file: ${metadata.filename} (${(metadata.filesize / 1024 / 1024).toFixed(1)}MB)`);
+                        console.log(`📅 Uploaded: ${new Date(metadata.uploadDate).toLocaleString()}`);
+                    }
+
+                    // Show clear button in status bar
+                    if (this.clearDataButton) {
+                        this.clearDataButton.style.display = 'block';
+                    }
+
                     // Hide modal since we have data
                     this.hideModal();
                     // Dispatch event so app can initialize
@@ -377,6 +390,11 @@ export class DataLoader {
             await this.saveData(this.buildingsData);
 
             this.showStatus(`✓ Loaded ${featureCount} buildings successfully!`, 'success');
+
+            // Show clear button after successful upload
+            if (this.clearDataButton) {
+                this.clearDataButton.style.display = 'block';
+            }
 
             setTimeout(() => {
                 this.hideModal();
