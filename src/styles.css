@@ -284,3 +284,25 @@ body {
 .file-status.error {
     color: #ff0000;
 }
+
+.clear-data-btn {
+    width: 100%;
+    padding: 12px;
+    margin-top: 16px;
+    background: #ff4444;
+    color: #ffffff;
+    border: 2px solid #ff0000;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.clear-data-btn:hover {
+    background: #ff0000;
+}
+
+.clear-data-btn:active {
+    transform: scale(0.98);
+}

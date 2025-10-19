@@ -60,14 +60,30 @@ export class DataLoader {
                 });
             }
 
-            function saveData(data) {
+            function saveData(data, metadata = {}) {
                 return new Promise((resolve, reject) => {
                     if (!db) { reject(new Error('DB not initialized')); return; }
                     const transaction = db.transaction([STORE_NAME], 'readwrite');
                     const store = transaction.objectStore(STORE_NAME);
-                    const record = { id: STORAGE_KEY, data: data, timestamp: Date.now() };
+                    const record = { 
+                        id: STORAGE_KEY, 
+                        data: data, 
+                        metadata: metadata,
+                        timestamp: Date.now() 
+                    };
                     const request = store.put(record);
                     request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            function getMetadata() {
+                return new Promise((resolve, reject) => {
+                    if (!db) { reject(new Error('DB not initialized')); return; }
+                    const transaction = db.transaction([STORE_NAME], 'readonly');
+                    const store = transaction.objectStore(STORE_NAME);
+                    const request = store.get(STORAGE_KEY);
+                    request.onsuccess = () => resolve(request.result?.metadata || null);
                     request.onerror = () => reject(request.error);
                 });
             }
@@ -97,10 +113,13 @@ export class DataLoader {
                             result = await getData();
                             break;
                         case 'save':
-                            const count = payload?.features?.length || 0;
+                            const count = payload?.data?.features?.length || 0;
                             postMessage({ action: 'progress', id, message: \`Saving \${count} features...\` });
-                            await saveData(payload);
+                            await saveData(payload.data, payload.metadata);
                             result = { success: true };
+                            break;
+                        case 'getMetadata':
+                            result = await getMetadata();
                             break;
                         case 'clear':
                             await clearData();
@@ -224,7 +243,13 @@ export class DataLoader {
             console.log(`Saving ${featureCount} buildings to IndexedDB via Web Worker...`);
             const startTime = performance.now();
 
-            await this.sendToWorker('save', data);
+            // Include metadata about the file
+            const payload = {
+                data: data,
+                metadata: this.currentFileMetadata || {}
+            };
+
+            await this.sendToWorker('save', payload);
 
             const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
             console.log(`Buildings data saved successfully in ${elapsed}s (${featureCount} features)`);
@@ -274,6 +299,35 @@ export class DataLoader {
             });
         }
 
+        // Check if this is a different file than what's stored
+        const storedMetadata = await this.getStoredMetadata();
+        if (storedMetadata) {
+            const isDifferent =
+                storedMetadata.filename !== file.name ||
+                storedMetadata.filesize !== file.size;
+
+            if (isDifferent) {
+                console.log(` New file detected: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
+                console.log(` Clearing old data: ${storedMetadata.filename} (${(storedMetadata.filesize / 1024 / 1024).toFixed(1)}MB)`);
+
+                this.showStatus('New file detected - clearing old data...', 'loading');
+                await this.clearStoredData();
+
+                // Small delay to show message
+                await new Promise(resolve => setTimeout(resolve, 500));
+            } else {
+                console.log(' Same file as stored - will update data');
+            }
+        }
+
+        // Store file metadata for saving later
+        this.currentFileMetadata = {
+            filename: file.name,
+            filesize: file.size,
+            filetype: file.type,
+            uploadDate: new Date().toISOString()
+        };
+
         // Show processing status for large files
         const sizeMB = (file.size / 1024 / 1024).toFixed(1);
 
@@ -290,6 +344,14 @@ export class DataLoader {
         } else {
             this.showStatus('Reading file...', 'loading');
         }
+
+        // Store file metadata for saving later
+        this.currentFileMetadata = {
+            filename: file.name,
+            filesize: file.size,
+            filetype: file.type,
+            uploadDate: new Date().toISOString()
+        };
 
         try {
             if (window.crashLogger) {
@@ -454,6 +516,36 @@ export class DataLoader {
             return { used: `${used}MB`, limit: `${limit}MB`, percentage: Math.round((used / limit) * 100) + '%' };
         }
         return { used: 'N/A', limit: 'N/A', percentage: 'N/A' };
+    }
+
+    /**
+     * Get metadata about stored data
+     */
+    async getStoredMetadata() {
+        try {
+            const metadata = await this.sendToWorker('getMetadata');
+            return metadata;
+        } catch (error) {
+            console.error('Failed to get metadata:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Check if stored data is available and get info
+     */
+    async getDataInfo() {
+        const metadata = await this.getStoredMetadata();
+        if (metadata) {
+            return {
+                exists: true,
+                filename: metadata.filename,
+                filesize: metadata.filesize,
+                uploadDate: metadata.uploadDate,
+                featureCount: this.buildingsData?.features?.length || 0
+            };
+        }
+        return { exists: false };
     }
 
     /**

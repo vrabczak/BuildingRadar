@@ -1,60 +1,65 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="theme-color" content="#1a1a1a">
-    <title>Building Radar</title>
-    <!-- Mobile debugging console - remove in production -->
-    <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
-    <script>eruda.init();</script>
-    <link rel="manifest" href="manifest.json">
-    <link rel="apple-touch-icon" href="icons/icon-192.png">
-</head>
-<body>
-    <div id="app">
-        <!-- Radar Canvas -->
-        <canvas id="radarCanvas"></canvas>
-        
-        <!-- File Input Modal -->
-        <div id="fileInputModal" class="modal">
-            <div class="modal-content">
-                <h2>Load Building Data</h2>
-                <p>Select a shapefile (.shp or .zip) from your local drive</p>
-                <input type="file" id="shapefileInput" accept=".shp,.zip" />
-                <div id="fileStatus" class="file-status"></div>
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+        <meta name="theme-color" content="#1a1a1a">
+        <title>Building Radar</title>
+        <!-- Mobile debugging console - remove in production -->
+        <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
+        <script>eruda.init();</script>
+        <link rel="manifest" href="manifest.json">
+        <link rel="apple-touch-icon" href="icons/icon-192.png">
+    </head>
+
+    <body>
+        <div id="app">
+            <!-- Radar Canvas -->
+            <canvas id="radarCanvas"></canvas>
+
+            <!-- File Input Modal -->
+            <div id="fileInputModal" class="modal">
+                <div class="modal-content">
+                    <h2>Load Building Data</h2>
+                    <p>Select a shapefile (.shp or .zip) from your local drive</p>
+                    <input type="file" id="shapefileInput" accept=".shp,.zip" />
+                    <div id="fileStatus" class="file-status"></div>
+                    <button id="clearDataButton" class="clear-data-btn" style="display: none;">Clear Stored
+                        Data</button>
+                </div>
+            </div>
+
+            <!-- Status Bar -->
+            <div id="statusBar">
+                <div id="gpsStatus" class="status-item">
+                    <span class="status-label">GPS:</span>
+                    <span id="gpsStatusText" class="status-value">Connecting...</span>
+                </div>
+                <div id="accuracyStatus" class="status-item">
+                    <span class="status-label">Accuracy:</span>
+                    <span id="accuracyValue" class="status-value">--</span>
+                </div>
+                <div id="buildingCount" class="status-item">
+                    <span class="status-label">Buildings:</span>
+                    <span id="buildingCountValue" class="status-value">0</span>
+                </div>
+            </div>
+
+            <!-- Error Message -->
+            <div id="errorMessage" class="hidden">
+                <p id="errorText"></p>
+                <button id="retryButton">Retry</button>
+            </div>
+
+            <!-- Loading Indicator -->
+            <div id="loadingIndicator">
+                <div class="spinner"></div>
+                <p>Initializing GPS...</p>
             </div>
         </div>
-        
-        <!-- Status Bar -->
-        <div id="statusBar">
-            <div id="gpsStatus" class="status-item">
-                <span class="status-label">GPS:</span>
-                <span id="gpsStatusText" class="status-value">Connecting...</span>
-            </div>
-            <div id="accuracyStatus" class="status-item">
-                <span class="status-label">Accuracy:</span>
-                <span id="accuracyValue" class="status-value">--</span>
-            </div>
-            <div id="buildingCount" class="status-item">
-                <span class="status-label">Buildings:</span>
-                <span id="buildingCountValue" class="status-value">0</span>
-            </div>
-        </div>
-        
-        <!-- Error Message -->
-        <div id="errorMessage" class="hidden">
-            <p id="errorText"></p>
-            <button id="retryButton">Retry</button>
-        </div>
-        
-        <!-- Loading Indicator -->
-        <div id="loadingIndicator">
-            <div class="spinner"></div>
-            <p>Initializing GPS...</p>
-        </div>
-    </div>
-</body>
+    </body>
+
 </html>
