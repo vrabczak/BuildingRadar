@@ -1,5 +1,6 @@
 /**
  * DataLoader - Handles loading and parsing of shapefile data with progress tracking
+ * Uses Web Worker for IndexedDB operations to prevent UI blocking
  */
 export class DataLoader {
     constructor() {
@@ -11,9 +12,147 @@ export class DataLoader {
         this.dbName = 'BuildingRadarDB';
         this.dbVersion = 1;
         this.maxFileSizeMobile = 50 * 1024 * 1024; // 50MB limit for mobile devices
+        this.messageId = 0;
+        this.pendingMessages = new Map();
 
         this.setupEventListeners();
+        this.initWorker();
         this.initDB().then(() => this.restoreData());
+    }
+
+    /**
+     * Initialize Web Worker for background IndexedDB operations
+     */
+    initWorker() {
+        // Create worker from inline code to avoid separate file
+        const workerCode = `
+            let db = null;
+            const DB_NAME = 'BuildingRadarDB';
+            const DB_VERSION = 1;
+            const STORE_NAME = 'buildings';
+            const STORAGE_KEY = 'buildingRadarData';
+
+            function initDB() {
+                return new Promise((resolve, reject) => {
+                    const request = indexedDB.open(DB_NAME, DB_VERSION);
+                    request.onerror = () => reject(request.error);
+                    request.onsuccess = () => {
+                        db = request.result;
+                        resolve(db);
+                    };
+                    request.onupgradeneeded = (event) => {
+                        const database = event.target.result;
+                        if (!database.objectStoreNames.contains(STORE_NAME)) {
+                            database.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                        }
+                    };
+                });
+            }
+
+            function getData() {
+                return new Promise((resolve, reject) => {
+                    if (!db) { reject(new Error('DB not initialized')); return; }
+                    const transaction = db.transaction([STORE_NAME], 'readonly');
+                    const store = transaction.objectStore(STORE_NAME);
+                    const request = store.get(STORAGE_KEY);
+                    request.onsuccess = () => resolve(request.result?.data);
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            function saveData(data) {
+                return new Promise((resolve, reject) => {
+                    if (!db) { reject(new Error('DB not initialized')); return; }
+                    const transaction = db.transaction([STORE_NAME], 'readwrite');
+                    const store = transaction.objectStore(STORE_NAME);
+                    const record = { id: STORAGE_KEY, data: data, timestamp: Date.now() };
+                    const request = store.put(record);
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            function clearData() {
+                return new Promise((resolve, reject) => {
+                    if (!db) { reject(new Error('DB not initialized')); return; }
+                    const transaction = db.transaction([STORE_NAME], 'readwrite');
+                    const store = transaction.objectStore(STORE_NAME);
+                    const request = store.delete(STORAGE_KEY);
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            self.addEventListener('message', async (event) => {
+                const { action, payload, id } = event.data;
+                try {
+                    let result;
+                    switch (action) {
+                        case 'init':
+                            await initDB();
+                            result = { success: true };
+                            break;
+                        case 'get':
+                            postMessage({ action: 'progress', id, message: 'Loading from IndexedDB...' });
+                            result = await getData();
+                            break;
+                        case 'save':
+                            const count = payload?.features?.length || 0;
+                            postMessage({ action: 'progress', id, message: \`Saving \${count} features...\` });
+                            await saveData(payload);
+                            result = { success: true };
+                            break;
+                        case 'clear':
+                            await clearData();
+                            result = { success: true };
+                            break;
+                        default:
+                            throw new Error('Unknown action: ' + action);
+                    }
+                    postMessage({ action: 'response', id, success: true, data: result });
+                } catch (error) {
+                    postMessage({ action: 'response', id, success: false, error: error.message });
+                }
+            });
+        `;
+
+        const blob = new Blob([workerCode], { type: 'application/javascript' });
+        this.worker = new Worker(URL.createObjectURL(blob));
+
+        // Handle worker messages
+        this.worker.addEventListener('message', (event) => {
+            const { action, id, success, data, error, message } = event.data;
+
+            if (action === 'progress') {
+                console.log('[Worker Progress]', message);
+                return;
+            }
+
+            if (action === 'response') {
+                const pending = this.pendingMessages.get(id);
+                if (pending) {
+                    this.pendingMessages.delete(id);
+                    if (success) {
+                        pending.resolve(data);
+                    } else {
+                        pending.reject(new Error(error));
+                    }
+                }
+            }
+        });
+
+        console.log('Web Worker initialized for IndexedDB operations');
+    }
+
+    /**
+     * Send message to worker and wait for response
+     */
+    sendToWorker(action, payload = null) {
+        return new Promise((resolve, reject) => {
+            const id = this.messageId++;
+            this.pendingMessages.set(id, { resolve, reject });
+            this.worker.postMessage({ action, payload, id });
+        });
     }
 
     setupEventListeners() {
@@ -21,54 +160,39 @@ export class DataLoader {
     }
 
     /**
-     * Initialize IndexedDB for storing large datasets
+     * Initialize IndexedDB via Web Worker
      */
     async initDB() {
-        return new Promise((resolve, reject) => {
-            const request = indexedDB.open(this.dbName, this.dbVersion);
-
-            request.onerror = () => {
-                console.error('Failed to open IndexedDB:', request.error);
-                reject(request.error);
-            };
-
-            request.onsuccess = () => {
-                this.db = request.result;
-                console.log('IndexedDB initialized');
-                resolve(this.db);
-            };
-
-            request.onupgradeneeded = (event) => {
-                const db = event.target.result;
-                if (!db.objectStoreNames.contains('buildings')) {
-                    db.createObjectStore('buildings', { keyPath: 'id' });
-                    console.log('Created buildings object store');
-                }
-            };
-        });
+        try {
+            await this.sendToWorker('init');
+            console.log('IndexedDB initialized via Web Worker');
+            return true;
+        } catch (error) {
+            console.error('Failed to initialize IndexedDB:', error);
+            throw error;
+        }
     }
 
     /**
-     * Restore buildings data from IndexedDB if available
+     * Restore buildings data from IndexedDB via Web Worker (non-blocking)
      */
     async restoreData() {
         try {
-            if (!this.db) {
-                console.warn('IndexedDB not initialized yet');
-                return false;
-            }
+            console.log('Restoring buildings data from IndexedDB (via Web Worker)...');
+            this.showStatus('Loading saved data...', 'loading');
 
-            console.log('Restoring buildings data from IndexedDB...');
-            const data = await this.getDataFromDB();
+            const startTime = performance.now();
+            const data = await this.sendToWorker('get');
+            const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
 
             if (data) {
                 this.buildingsData = data;
                 const featureCount = this.buildingsData?.features?.length || 0;
                 if (featureCount > 0) {
-                    console.log(`Restored ${featureCount} buildings from storage`);
+                    console.log(`Restored ${featureCount} buildings from storage in ${elapsed}s`);
                     // Hide modal since we have data
                     this.hideModal();
-                    // Dispatch event immediately so app can initialize
+                    // Dispatch event so app can initialize
                     setTimeout(() => {
                         window.dispatchEvent(new CustomEvent('buildingsLoaded', {
                             detail: this.buildingsData
@@ -85,27 +209,9 @@ export class DataLoader {
         return false;
     }
 
-    /**
-     * Get data from IndexedDB
-     */
-    async getDataFromDB() {
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction(['buildings'], 'readonly');
-            const store = transaction.objectStore('buildings');
-            const request = store.get(this.storageKey);
-
-            request.onsuccess = () => {
-                resolve(request.result?.data);
-            };
-
-            request.onerror = () => {
-                reject(request.error);
-            };
-        });
-    }
 
     /**
-     * Save buildings data to IndexedDB (supports large datasets)
+     * Save buildings data to IndexedDB via Web Worker (non-blocking)
      */
     async saveData(data) {
         try {
@@ -115,24 +221,20 @@ export class DataLoader {
                 return false;
             }
 
-            if (!this.db) {
-                console.warn('IndexedDB not initialized, cannot save data');
-                return false;
-            }
+            console.log(`Saving ${featureCount} buildings to IndexedDB via Web Worker...`);
+            const startTime = performance.now();
 
-            console.log(`Saving ${featureCount} buildings to IndexedDB...`);
+            await this.sendToWorker('save', data);
 
-            await this.saveDataToDB(data);
-
-            console.log(`Buildings data saved successfully (${featureCount} features)`);
+            const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+            console.log(`Buildings data saved successfully in ${elapsed}s (${featureCount} features)`);
             return true;
         } catch (error) {
             console.error('Failed to save buildings data:', error);
 
             // Handle quota errors
-            if (error.name === 'QuotaExceededError') {
+            if (error.message && error.message.includes('quota')) {
                 console.warn('Storage quota exceeded. Try clearing old data or using a smaller dataset.');
-                // Optionally clear old data
                 await this.clearStoredData();
             }
 
@@ -140,28 +242,6 @@ export class DataLoader {
         }
     }
 
-    /**
-     * Save data to IndexedDB
-     */
-    async saveDataToDB(data) {
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction(['buildings'], 'readwrite');
-            const store = transaction.objectStore('buildings');
-            const request = store.put({
-                id: this.storageKey,
-                data: data,
-                timestamp: Date.now()
-            });
-
-            request.onsuccess = () => {
-                resolve();
-            };
-
-            request.onerror = () => {
-                reject(request.error);
-            };
-        });
-    }
 
     /**
      * Check if device is mobile/tablet
@@ -377,31 +457,14 @@ export class DataLoader {
     }
 
     /**
-     * Clear stored buildings data from IndexedDB
+     * Clear stored buildings data from IndexedDB via Web Worker
      */
     async clearStoredData() {
         try {
-            if (!this.db) {
-                console.warn('IndexedDB not initialized');
-                return false;
-            }
-
-            return new Promise((resolve, reject) => {
-                const transaction = this.db.transaction(['buildings'], 'readwrite');
-                const store = transaction.objectStore('buildings');
-                const request = store.delete(this.storageKey);
-
-                request.onsuccess = () => {
-                    this.buildingsData = null;
-                    console.log('Buildings data cleared from storage');
-                    resolve(true);
-                };
-
-                request.onerror = () => {
-                    console.error('Failed to clear buildings data:', request.error);
-                    reject(request.error);
-                };
-            });
+            await this.sendToWorker('clear');
+            this.buildingsData = null;
+            console.log('Buildings data cleared from storage');
+            return true;
         } catch (error) {
             console.error('Failed to clear buildings data:', error);
             return false;
