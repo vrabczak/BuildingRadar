@@ -24,8 +24,47 @@
             <div id="fileInputModal" class="modal">
                 <div class="modal-content">
                     <h2>Load Building Data</h2>
-                    <p>Select a shapefile (.shp or .zip) from your local drive</p>
-                    <input type="file" id="shapefileInput" accept=".shp,.zip" />
+
+                    <!-- Initial Choice View -->
+                    <div id="choiceView">
+                        <!-- Loading indicator -->
+                        <div id="modalLoading" class="modal-loading">
+                            <div class="modal-spinner"></div>
+                            <p>Checking for saved data...</p>
+                        </div>
+
+                        <!-- Choice content (hidden until loading completes) -->
+                        <div id="choiceContent" style="display: none;">
+                            <p>Choose an option to get started:</p>
+                            <div class="choice-buttons">
+                                <button id="restoreDataBtn" class="choice-btn restore-btn" style="display: none;">
+                                    <span class="btn-icon">📦</span>
+                                    <div class="btn-content">
+                                        <div class="btn-title">Restore Saved Data</div>
+                                        <div id="savedDataInfo" class="btn-subtitle"></div>
+                                    </div>
+                                </button>
+                                <button id="uploadNewBtn" class="choice-btn upload-btn">
+                                    <span class="btn-icon">📁</span>
+                                    <div class="btn-content">
+                                        <div class="btn-title">Upload New File</div>
+                                        <div class="btn-subtitle">Select a shapefile (.shp or .zip)</div>
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- File Upload View (hidden initially) -->
+                    <div id="uploadView" style="display: none;">
+                        <p id="uploadDescription">Select a shapefile (.shp or .zip) from your local drive</p>
+                        <div id="uploadWarning" class="upload-warning" style="display: none;">
+                            ⚠️ This will replace your existing saved data
+                        </div>
+                        <input type="file" id="shapefileInput" accept=".shp,.zip" />
+                        <button id="backToChoiceBtn" class="back-btn">← Back</button>
+                    </div>
+
                     <div id="fileStatus" class="file-status"></div>
                 </div>
             </div>
@@ -44,14 +83,6 @@
                     <span class="status-label">Buildings:</span>
                     <span id="buildingCountValue" class="status-value">0</span>
                 </div>
-            </div>
-
-            <!-- Control Bar (Bottom) -->
-            <div id="controlBar" style="display: none;">
-                <button id="clearDataButton" class="control-btn clear-btn" title="Clear stored building data">
-                    <span class="btn-icon">🗑️</span>
-                    <span class="btn-text">Clear Data</span>
-                </button>
             </div>
 
             <!-- Error Message -->

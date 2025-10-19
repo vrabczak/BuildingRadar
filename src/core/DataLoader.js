@@ -8,8 +8,18 @@ export class DataLoader {
         this.fileInput = document.getElementById('shapefileInput');
         this.fileStatus = document.getElementById('fileStatus');
         this.modal = document.getElementById('fileInputModal');
-        this.controlBar = document.getElementById('controlBar');
-        this.clearDataButton = document.getElementById('clearDataButton');
+
+        // New UI elements
+        this.choiceView = document.getElementById('choiceView');
+        this.uploadView = document.getElementById('uploadView');
+        this.modalLoading = document.getElementById('modalLoading');
+        this.choiceContent = document.getElementById('choiceContent');
+        this.restoreDataBtn = document.getElementById('restoreDataBtn');
+        this.uploadNewBtn = document.getElementById('uploadNewBtn');
+        this.backToChoiceBtn = document.getElementById('backToChoiceBtn');
+        this.savedDataInfo = document.getElementById('savedDataInfo');
+        this.uploadWarning = document.getElementById('uploadWarning');
+
         this.storageKey = 'buildingRadarData';
         this.dbName = 'BuildingRadarDB';
         this.dbVersion = 1;
@@ -18,14 +28,27 @@ export class DataLoader {
         this.pendingMessages = new Map();
 
         console.log('DataLoader elements:', {
-            controlBar: !!this.controlBar,
-            clearDataButton: !!this.clearDataButton,
-            fileInput: !!this.fileInput
+            fileInput: !!this.fileInput,
+            choiceView: !!this.choiceView,
+            uploadView: !!this.uploadView
         });
 
         this.setupEventListeners();
         this.initWorker();
-        this.initDB().then(() => this.restoreData());
+        this.initDB().then(() => {
+            console.log('Calling updateModalUI...');
+            return this.updateModalUI();
+        }).catch(error => {
+            console.error('Error during initialization:', error);
+            // Show error and allow upload anyway
+            if (this.modalLoading) {
+                this.modalLoading.style.display = 'none';
+            }
+            if (this.choiceContent) {
+                this.choiceContent.style.display = 'block';
+            }
+            this.showChoiceView();
+        });
 
         // Expose methods to window for console access
         window.dataLoader = this;
@@ -187,6 +210,29 @@ export class DataLoader {
 
     setupEventListeners() {
         this.fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
+
+        // Restore saved data button
+        if (this.restoreDataBtn) {
+            this.restoreDataBtn.addEventListener('click', async () => {
+                console.log('📦 User chose to restore saved data');
+                await this.restoreData();
+            });
+        }
+
+        // Upload new file button
+        if (this.uploadNewBtn) {
+            this.uploadNewBtn.addEventListener('click', () => {
+                console.log('📁 User chose to upload new file');
+                this.showUploadView();
+            });
+        }
+
+        // Back to choice button
+        if (this.backToChoiceBtn) {
+            this.backToChoiceBtn.addEventListener('click', () => {
+                this.showChoiceView();
+            });
+        }
     }
 
     /**
@@ -228,14 +274,6 @@ export class DataLoader {
                         console.log(`📅 Uploaded: ${new Date(metadata.uploadDate).toLocaleString()}`);
                     }
 
-                    // Show control bar
-                    if (this.controlBar) {
-                        console.log('🎮 Showing control bar');
-                        this.controlBar.style.display = 'flex';
-                    } else {
-                        console.warn('Control bar element not found');
-                    }
-
                     // Hide modal since we have data
                     this.hideModal();
                     // Dispatch event so app can initialize
@@ -255,43 +293,93 @@ export class DataLoader {
         return false;
     }
 
-    setupEventListeners() {
-        console.log('Setting up event listeners...');
+    /**
+     * Update modal UI based on whether saved data exists
+     */
+    async updateModalUI() {
+        try {
+            console.log('updateModalUI started');
+            const metadata = await this.getStoredMetadata();
+            console.log('Metadata retrieved:', metadata ? 'exists' : 'none');
 
-        this.fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
-        console.log('File input listener attached');
+            if (metadata && this.restoreDataBtn && this.savedDataInfo) {
+                // Show restore button if data exists
+                this.restoreDataBtn.style.display = 'flex';
 
-        // Clear data button
-        console.log('clearDataButton element:', this.clearDataButton);
+                // Update subtitle with file info
+                const sizeMB = (metadata.filesize / 1024 / 1024).toFixed(1);
+                const date = new Date(metadata.uploadDate).toLocaleDateString();
+                this.savedDataInfo.textContent = `${metadata.filename} (${sizeMB}MB) - ${date}`;
 
-        if (this.clearDataButton) {
-            console.log('✅ Clear data button found, attaching listener');
-
-            this.clearDataButton.addEventListener('click', async (e) => {
-                console.log('👆 Clear button clicked!', e);
-
-                if (confirm('Are you sure you want to clear all stored building data?')) {
-                    console.log('🗑️ User confirmed - clearing stored data...');
-                    await this.clearStoredData();
-
-                    if (this.controlBar) {
-                        this.controlBar.style.display = 'none';
-                    }
-                    this.showModal();
-
-                    // Reload page to reset app state
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 1000);
+                // Show warning in upload view
+                if (this.uploadWarning) {
+                    this.uploadWarning.style.display = 'block';
                 }
-            });
+            } else {
+                // Hide restore button if no data
+                if (this.restoreDataBtn) {
+                    this.restoreDataBtn.style.display = 'none';
+                }
 
-            console.log('Clear button listener attached successfully');
-        } else {
-            console.warn('❌ Clear data button not found in DOM');
+                // Hide warning in upload view
+                if (this.uploadWarning) {
+                    this.uploadWarning.style.display = 'none';
+                }
+            }
+
+            // Hide loading indicator and show choice content
+            console.log('Hiding loading indicator');
+            if (this.modalLoading) {
+                this.modalLoading.style.display = 'none';
+            }
+            if (this.choiceContent) {
+                this.choiceContent.style.display = 'block';
+            }
+
+            // Always start with choice view
+            this.showChoiceView();
+            console.log('updateModalUI completed');
+        } catch (error) {
+            console.error('Error in updateModalUI:', error);
+            // Fallback: show UI anyway
+            if (this.modalLoading) {
+                this.modalLoading.style.display = 'none';
+            }
+            if (this.choiceContent) {
+                this.choiceContent.style.display = 'block';
+            }
+            this.showChoiceView();
         }
+    }
 
-        console.log('Event listeners setup complete');
+    /**
+     * Show the choice view (restore or upload)
+     */
+    showChoiceView() {
+        if (this.choiceView) {
+            this.choiceView.style.display = 'block';
+        }
+        if (this.uploadView) {
+            this.uploadView.style.display = 'none';
+        }
+        // Clear file input
+        if (this.fileInput) {
+            this.fileInput.value = '';
+        }
+        this.showStatus('', '');
+    }
+
+    /**
+     * Show the upload view
+     */
+    showUploadView() {
+        if (this.choiceView) {
+            this.choiceView.style.display = 'none';
+        }
+        if (this.uploadView) {
+            this.uploadView.style.display = 'block';
+        }
+        this.showStatus('', '');
     }
 
     /**
@@ -442,11 +530,6 @@ export class DataLoader {
             await this.saveData(this.buildingsData);
 
             this.showStatus(`✓ Loaded ${featureCount} buildings successfully!`, 'success');
-
-            // Show control bar after successful upload
-            if (this.controlBar) {
-                this.controlBar.style.display = 'flex';
-            }
 
             setTimeout(() => {
                 this.hideModal();
