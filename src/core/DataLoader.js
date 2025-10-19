@@ -8,6 +8,7 @@ export class DataLoader {
         this.fileInput = document.getElementById('shapefileInput');
         this.fileStatus = document.getElementById('fileStatus');
         this.modal = document.getElementById('fileInputModal');
+        this.controlBar = document.getElementById('controlBar');
         this.storageKey = 'buildingRadarData';
         this.dbName = 'BuildingRadarDB';
         this.dbVersion = 1;
@@ -18,6 +19,9 @@ export class DataLoader {
         this.setupEventListeners();
         this.initWorker();
         this.initDB().then(() => this.restoreData());
+
+        // Expose methods to window for console access
+        window.dataLoader = this;
     }
 
     /**
@@ -217,9 +221,9 @@ export class DataLoader {
                         console.log(`📅 Uploaded: ${new Date(metadata.uploadDate).toLocaleString()}`);
                     }
 
-                    // Show clear button in status bar
-                    if (this.clearDataButton) {
-                        this.clearDataButton.style.display = 'block';
+                    // Show control bar
+                    if (this.controlBar) {
+                        this.controlBar.style.display = 'flex';
                     }
 
                     // Hide modal since we have data
@@ -391,9 +395,9 @@ export class DataLoader {
 
             this.showStatus(`✓ Loaded ${featureCount} buildings successfully!`, 'success');
 
-            // Show clear button after successful upload
-            if (this.clearDataButton) {
-                this.clearDataButton.style.display = 'block';
+            // Show control bar after successful upload
+            if (this.controlBar) {
+                this.controlBar.style.display = 'flex';
             }
 
             setTimeout(() => {

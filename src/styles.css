@@ -330,3 +330,58 @@ body {
 .clear-data-btn-status:active {
     transform: scale(0.95);
 }
+
+/* Control Bar (Bottom) */
+#controlBar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(0, 0, 0, 0.9);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    padding: 12px 16px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    border-top: 1px solid rgba(0, 255, 0, 0.3);
+    z-index: 100;
+}
+
+.control-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 2px solid;
+}
+
+.control-btn .btn-icon {
+    font-size: 18px;
+    line-height: 1;
+}
+
+.control-btn .btn-text {
+    font-size: 14px;
+}
+
+.clear-btn {
+    background: rgba(255, 68, 68, 0.9);
+    color: #ffffff;
+    border-color: rgba(255, 0, 0, 0.8);
+}
+
+.clear-btn:hover {
+    background: rgba(255, 0, 0, 1);
+    border-color: rgba(255, 0, 0, 1);
+}
+
+.clear-btn:active {
+    transform: scale(0.97);
+}
