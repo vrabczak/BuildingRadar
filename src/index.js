@@ -3,6 +3,117 @@ import { BuildingRadar } from './core/BuildingRadar.js';
 import { DataLoader } from './core/DataLoader.js';
 
 /**
+ * Crash Detection & Logging System
+ * Logs errors to localStorage to survive page reloads
+ */
+class CrashLogger {
+    constructor() {
+        this.logKey = 'buildingRadar_crashLog';
+        this.setupGlobalHandlers();
+        this.checkPreviousCrash();
+    }
+
+    setupGlobalHandlers() {
+        // Catch unhandled errors
+        window.addEventListener('error', (event) => {
+            this.logCrash('ERROR', event.message, event.filename, event.lineno, event.colno, event.error?.stack);
+        });
+
+        // Catch unhandled promise rejections
+        window.addEventListener('unhandledrejection', (event) => {
+            this.logCrash('PROMISE_REJECTION', event.reason?.message || event.reason, null, null, null, event.reason?.stack);
+        });
+
+        // Log when page is about to unload (might be a crash)
+        window.addEventListener('beforeunload', () => {
+            this.logEvent('PAGE_UNLOAD');
+        });
+    }
+
+    logCrash(type, message, filename, line, col, stack) {
+        const crash = {
+            type,
+            message: String(message),
+            filename,
+            line,
+            col,
+            stack,
+            timestamp: new Date().toISOString(),
+            userAgent: navigator.userAgent,
+            memory: this.getMemoryInfo()
+        };
+
+        console.error(' CRASH DETECTED:', crash);
+
+        try {
+            const logs = this.getLogs();
+            logs.push(crash);
+            // Keep only last 10 crashes
+            if (logs.length > 10) logs.shift();
+            localStorage.setItem(this.logKey, JSON.stringify(logs));
+        } catch (e) {
+            console.error('Failed to save crash log:', e);
+        }
+    }
+
+    logEvent(eventName, data = {}) {
+        const event = {
+            type: 'EVENT',
+            event: eventName,
+            data,
+            timestamp: new Date().toISOString(),
+            memory: this.getMemoryInfo()
+        };
+
+        try {
+            const logs = this.getLogs();
+            logs.push(event);
+            if (logs.length > 10) logs.shift();
+            localStorage.setItem(this.logKey, JSON.stringify(logs));
+        } catch (e) {
+            console.error('Failed to save event log:', e);
+        }
+    }
+
+    getLogs() {
+        try {
+            const logs = localStorage.getItem(this.logKey);
+            return logs ? JSON.parse(logs) : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    getMemoryInfo() {
+        if (performance.memory) {
+            return {
+                usedJSHeapSize: Math.round(performance.memory.usedJSHeapSize / 1024 / 1024) + 'MB',
+                totalJSHeapSize: Math.round(performance.memory.totalJSHeapSize / 1024 / 1024) + 'MB',
+                jsHeapSizeLimit: Math.round(performance.memory.jsHeapSizeLimit / 1024 / 1024) + 'MB'
+            };
+        }
+        return null;
+    }
+
+    checkPreviousCrash() {
+        const logs = this.getLogs();
+        if (logs.length > 0) {
+            console.warn(' Previous crash/event logs found:', logs);
+            console.warn('Run crashLogger.clearLogs() to clear or crashLogger.getLogs() to view');
+        }
+    }
+
+    clearLogs() {
+        localStorage.removeItem(this.logKey);
+        console.log('Crash logs cleared');
+    }
+}
+
+// Initialize crash logger immediately
+const crashLogger = new CrashLogger();
+window.crashLogger = crashLogger; // Make available in console
+
+/**
  * Register service worker for offline support
  */
 if ('serviceWorker' in navigator) {
@@ -54,7 +165,14 @@ let buildingsLoadedHandled = false;
 
 function initApp() {
     try {
+        crashLogger.logEvent('APP_INIT_START');
         console.log('Initializing BuildingRadar application...');
+
+        // Log memory info
+        const memInfo = crashLogger.getMemoryInfo();
+        if (memInfo) {
+            console.log('Memory available:', memInfo);
+        }
 
         // Initialize data loader (will auto-restore if data exists)
         dataLoader = new DataLoader();

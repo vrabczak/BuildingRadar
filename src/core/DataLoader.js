@@ -185,24 +185,54 @@ export class DataLoader {
         const file = event.target.files[0];
         if (!file) return;
 
+        // Log file selection event
+        if (window.crashLogger) {
+            window.crashLogger.logEvent('FILE_SELECT', {
+                name: file.name,
+                size: file.size,
+                type: file.type
+            });
+        }
+
         // Show processing status for large files
         const sizeMB = (file.size / 1024 / 1024).toFixed(1);
-        if (file.size > 50 * 1024 * 1024) {
+
+        // Check memory before processing
+        const memInfo = this.checkMemory();
+        console.log('Memory before file load:', memInfo);
+
+        // Warn on mobile if file is very large
+        if (this.isMobileDevice() && file.size > 30 * 1024 * 1024) {
+            console.warn(`⚠️ Large file (${sizeMB}MB) on mobile device - may cause crash`);
+            this.showStatus(`⚠️ Large file (${sizeMB}MB) - processing slowly to avoid crash...`, 'loading');
+        } else if (file.size > 50 * 1024 * 1024) {
             this.showStatus(`Loading ${sizeMB}MB file, please wait...`, 'loading');
         } else {
             this.showStatus('Reading file...', 'loading');
         }
 
         try {
+            if (window.crashLogger) {
+                window.crashLogger.logEvent('FILE_LOAD_START', { size: file.size });
+            }
+
             const data = await this.loadShapefile(file);
+
+            if (window.crashLogger) {
+                window.crashLogger.logEvent('FILE_LOAD_COMPLETE');
+            }
 
             this.showStatus('Processing data...', 'loading');
             this.buildingsData = this.convertToGeoJSON(data);
 
             const featureCount = this.buildingsData.features.length;
+            console.log(`Loaded ${featureCount} features, memory:`, this.checkMemory());
 
-            // Save to localStorage for persistence
-            this.saveData(this.buildingsData);
+            // Save to IndexedDB for persistence
+            if (window.crashLogger) {
+                window.crashLogger.logEvent('SAVING_DATA', { featureCount });
+            }
+            await this.saveData(this.buildingsData);
 
             this.showStatus(`✓ Loaded ${featureCount} buildings successfully!`, 'success');
 
@@ -214,7 +244,28 @@ export class DataLoader {
             }, 1000);
         } catch (error) {
             console.error('Error loading shapefile:', error);
-            this.showStatus(`✗ Error: ${error.message}`, 'error');
+
+            // Log crash details
+            if (window.crashLogger) {
+                window.crashLogger.logCrash(
+                    'FILE_LOAD_ERROR',
+                    error.message,
+                    null,
+                    null,
+                    null,
+                    error.stack
+                );
+            }
+
+            // Show user-friendly error
+            let errorMsg = error.message;
+            if (error.message.includes('memory') || error.name === 'RangeError') {
+                errorMsg = 'File too large for this device. Try a smaller dataset.';
+            } else if (error.message.includes('parse')) {
+                errorMsg = 'Invalid shapefile format. Please check the file.';
+            }
+
+            this.showStatus(`✗ Error: ${errorMsg}`, 'error');
         }
     }
 
@@ -236,25 +287,58 @@ export class DataLoader {
                     const arrayBuffer = e.target.result;
                     console.log('File loaded, size:', arrayBuffer.byteLength, 'bytes');
                     console.log('File type:', file.type, 'Name:', file.name);
+                    console.log('Memory after file read:', this.checkMemory());
+
+                    // Check if we have enough memory for parsing (rough heuristic)
+                    if (this.isMobileDevice() && arrayBuffer.byteLength > 20 * 1024 * 1024) {
+                        console.warn('⚠️ Large file on mobile - proceeding with caution');
+                        // Give browser time to stabilize
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
 
                     this.showStatus('Loading parser...', 'loading');
-                    const shpModule = await import('shpjs');
-                    console.log('shpjs module loaded');
+                    let shpModule;
+                    try {
+                        shpModule = await import('shpjs');
+                        console.log('shpjs module loaded');
+                    } catch (importError) {
+                        console.error('Failed to load shpjs module:', importError);
+                        throw new Error('Failed to load shapefile parser library');
+                    }
 
                     this.showStatus('Parsing shapefile (please wait)...', 'loading');
-                    const geojson = await shpModule.default(arrayBuffer);
+                    console.log('Starting shapefile parse...');
 
-                    console.log('GeoJSON parsed:', geojson);
+                    let geojson;
+                    try {
+                        geojson = await shpModule.default(arrayBuffer);
+                        console.log('GeoJSON parsed successfully');
+                        console.log('Features:', geojson?.features?.length || 0);
+                        console.log('Memory after parse:', this.checkMemory());
+                    } catch (parseError) {
+                        console.error('Shapefile parsing failed:', parseError);
+                        throw new Error(`Parsing failed: ${parseError.message}`);
+                    }
 
                     resolve(geojson);
                 } catch (error) {
-                    console.error('Shapefile parsing error:', error);
+                    console.error('Shapefile loading error:', error);
+                    console.error('Error stack:', error.stack);
                     reject(new Error(`Failed to parse shapefile: ${error.message}`));
                 }
             };
 
-            reader.onerror = () => reject(new Error('Failed to read file'));
-            reader.readAsArrayBuffer(file);
+            reader.onerror = (error) => {
+                console.error('FileReader error:', error);
+                reject(new Error('Failed to read file'));
+            };
+
+            try {
+                reader.readAsArrayBuffer(file);
+            } catch (error) {
+                console.error('Failed to start file read:', error);
+                reject(new Error('Failed to start reading file'));
+            }
         });
     }
 
@@ -278,6 +362,18 @@ export class DataLoader {
 
     getBuildingsData() {
         return this.buildingsData;
+    }
+
+    /**
+     * Get current memory info (if available)
+     */
+    checkMemory() {
+        if (performance.memory) {
+            const used = Math.round(performance.memory.usedJSHeapSize / 1024 / 1024);
+            const limit = Math.round(performance.memory.jsHeapSizeLimit / 1024 / 1024);
+            return { used: `${used}MB`, limit: `${limit}MB`, percentage: Math.round((used / limit) * 100) + '%' };
+        }
+        return { used: 'N/A', limit: 'N/A', percentage: 'N/A' };
     }
 
     /**
