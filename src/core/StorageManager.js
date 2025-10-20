@@ -50,42 +50,53 @@ export class StorageManager {
             }
 
             function saveSpatialIndex(indexData, featureChunks, metadata = {}) {
-                return new Promise(async (resolve, reject) => {
+                return new Promise((resolve, reject) => {
                     if (!db) { reject(new Error('DB not initialized')); return; }
                     
                     try {
-                        // Clear old chunk data first
-                        await clearFeatureChunks();
-                        
+                        // Use single transaction for atomic clear + save
                         const transaction = db.transaction([STORE_NAME], 'readwrite');
                         const store = transaction.objectStore(STORE_NAME);
                         
-                        // Save index structure
-                        const indexRecord = {
-                            id: INDEX_KEY,
-                            data: indexData,
-                            metadata: metadata,
-                            chunkCount: featureChunks.length,
-                            timestamp: Date.now()
-                        };
-                        store.put(indexRecord);
-                        
-                        // Save feature chunks
-                        for (let i = 0; i < featureChunks.length; i++) {
-                            const chunkRecord = {
-                                id: FEATURES_PREFIX + i,
-                                data: featureChunks[i],
-                                chunkIndex: i
-                            };
-                            store.put(chunkRecord);
+                        // First, delete all old chunk data
+                        const getAllKeysRequest = store.getAllKeys();
+                        getAllKeysRequest.onsuccess = () => {
+                            const keys = getAllKeysRequest.result;
                             
-                            if (i % 10 === 0) {
-                                postMessage({ 
-                                    action: 'progress', 
-                                    message: \`Saving chunk \${i + 1}/\${featureChunks.length}...\` 
-                                });
+                            // Delete old chunks (but keep index for now, we'll overwrite it)
+                            const chunkKeys = keys.filter(key => 
+                                typeof key === 'string' && key.startsWith(FEATURES_PREFIX)
+                            );
+                            chunkKeys.forEach(key => store.delete(key));
+                            
+                            // Save new index structure
+                            const indexRecord = {
+                                id: INDEX_KEY,
+                                data: indexData,
+                                metadata: metadata,
+                                chunkCount: featureChunks.length,
+                                timestamp: Date.now()
+                            };
+                            store.put(indexRecord);
+                            
+                            // Save new feature chunks
+                            for (let i = 0; i < featureChunks.length; i++) {
+                                const chunkRecord = {
+                                    id: FEATURES_PREFIX + i,
+                                    data: featureChunks[i],
+                                    chunkIndex: i
+                                };
+                                store.put(chunkRecord);
+                                
+                                if (i % 50 === 0) {
+                                    postMessage({ 
+                                        action: 'progress', 
+                                        message: \`Saving chunk \${i + 1}/\${featureChunks.length}...\` 
+                                    });
+                                }
                             }
-                        }
+                        };
+                        getAllKeysRequest.onerror = () => reject(getAllKeysRequest.error);
                         
                         transaction.oncomplete = () => resolve();
                         transaction.onerror = () => reject(transaction.error);
