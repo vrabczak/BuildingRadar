@@ -50,26 +50,34 @@ export class StorageManager {
             }
 
             function saveSpatialIndex(indexData, featureChunks, metadata = {}) {
-                return new Promise((resolve, reject) => {
+                return new Promise(async (resolve, reject) => {
                     if (!db) { reject(new Error('DB not initialized')); return; }
                     
                     try {
-                        // Use single transaction for atomic clear + save
-                        const transaction = db.transaction([STORE_NAME], 'readwrite');
-                        const store = transaction.objectStore(STORE_NAME);
+                        // Step 1: Clear old chunks in one transaction
+                        await new Promise((res, rej) => {
+                            const clearTx = db.transaction([STORE_NAME], 'readwrite');
+                            const clearStore = clearTx.objectStore(STORE_NAME);
+                            
+                            const getAllKeysRequest = clearStore.getAllKeys();
+                            getAllKeysRequest.onsuccess = () => {
+                                const keys = getAllKeysRequest.result;
+                                const chunkKeys = keys.filter(key => 
+                                    typeof key === 'string' && key.startsWith(FEATURES_PREFIX)
+                                );
+                                chunkKeys.forEach(key => clearStore.delete(key));
+                            };
+                            getAllKeysRequest.onerror = () => rej(getAllKeysRequest.error);
+                            
+                            clearTx.oncomplete = () => res();
+                            clearTx.onerror = () => rej(clearTx.error);
+                        });
                         
-                        // First, delete all old chunk data
-                        const getAllKeysRequest = store.getAllKeys();
-                        getAllKeysRequest.onsuccess = () => {
-                            const keys = getAllKeysRequest.result;
+                        // Step 2: Save index structure
+                        await new Promise((res, rej) => {
+                            const indexTx = db.transaction([STORE_NAME], 'readwrite');
+                            const indexStore = indexTx.objectStore(STORE_NAME);
                             
-                            // Delete old chunks (but keep index for now, we'll overwrite it)
-                            const chunkKeys = keys.filter(key => 
-                                typeof key === 'string' && key.startsWith(FEATURES_PREFIX)
-                            );
-                            chunkKeys.forEach(key => store.delete(key));
-                            
-                            // Save new index structure
                             const indexRecord = {
                                 id: INDEX_KEY,
                                 data: indexData,
@@ -77,29 +85,42 @@ export class StorageManager {
                                 chunkCount: featureChunks.length,
                                 timestamp: Date.now()
                             };
-                            store.put(indexRecord);
+                            indexStore.put(indexRecord);
                             
-                            // Save new feature chunks
-                            for (let i = 0; i < featureChunks.length; i++) {
-                                const chunkRecord = {
-                                    id: FEATURES_PREFIX + i,
-                                    data: featureChunks[i],
-                                    chunkIndex: i
-                                };
-                                store.put(chunkRecord);
-                                
-                                if (i % 50 === 0) {
-                                    postMessage({ 
-                                        action: 'progress', 
-                                        message: \`Saving chunk \${i + 1}/\${featureChunks.length}...\` 
-                                    });
-                                }
-                            }
-                        };
-                        getAllKeysRequest.onerror = () => reject(getAllKeysRequest.error);
+                            indexTx.oncomplete = () => res();
+                            indexTx.onerror = () => rej(indexTx.error);
+                        });
                         
-                        transaction.oncomplete = () => resolve();
-                        transaction.onerror = () => reject(transaction.error);
+                        // Step 3: Save chunks in batches to avoid memory exhaustion
+                        const BATCH_SIZE = 50; // Save 50 chunks per transaction
+                        for (let batchStart = 0; batchStart < featureChunks.length; batchStart += BATCH_SIZE) {
+                            const batchEnd = Math.min(batchStart + BATCH_SIZE, featureChunks.length);
+                            
+                            await new Promise((res, rej) => {
+                                const batchTx = db.transaction([STORE_NAME], 'readwrite');
+                                const batchStore = batchTx.objectStore(STORE_NAME);
+                                
+                                for (let i = batchStart; i < batchEnd; i++) {
+                                    const chunkRecord = {
+                                        id: FEATURES_PREFIX + i,
+                                        data: featureChunks[i],
+                                        chunkIndex: i
+                                    };
+                                    batchStore.put(chunkRecord);
+                                }
+                                
+                                batchTx.oncomplete = () => res();
+                                batchTx.onerror = () => rej(batchTx.error);
+                            });
+                            
+                            // Report progress
+                            postMessage({ 
+                                action: 'progress', 
+                                message: \`Saving chunks \${batchEnd}/\${featureChunks.length}...\` 
+                            });
+                        }
+                        
+                        resolve();
                     } catch (error) {
                         reject(error);
                     }
