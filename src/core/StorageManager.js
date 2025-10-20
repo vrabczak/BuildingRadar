@@ -103,45 +103,51 @@ export class StorageManager {
                         const transaction = db.transaction([STORE_NAME], 'readonly');
                         const store = transaction.objectStore(STORE_NAME);
                         
-                        // Load index structure
+                        // Load index structure only (without features for lazy loading)
                         const indexRequest = store.get(INDEX_KEY);
-                        indexRequest.onsuccess = async () => {
+                        indexRequest.onsuccess = () => {
                             const indexRecord = indexRequest.result;
                             if (!indexRecord) {
                                 resolve(null);
                                 return;
                             }
                             
-                            const chunkCount = indexRecord.chunkCount || 0;
-                            const featureChunks = [];
-                            
-                            // Load all feature chunks
-                            for (let i = 0; i < chunkCount; i++) {
-                                const chunkRequest = store.get(FEATURES_PREFIX + i);
-                                const chunk = await new Promise((res, rej) => {
-                                    chunkRequest.onsuccess = () => res(chunkRequest.result?.data);
-                                    chunkRequest.onerror = () => rej(chunkRequest.error);
-                                });
-                                
-                                if (chunk) {
-                                    featureChunks.push(chunk);
-                                }
-                                
-                                if (i % 10 === 0) {
-                                    postMessage({ 
-                                        action: 'progress', 
-                                        message: \`Loading chunk \${i + 1}/\${chunkCount}...\` 
-                                    });
-                                }
-                            }
-                            
+                            // Return index structure without features
                             resolve({
                                 indexData: indexRecord.data,
-                                featureChunks: featureChunks,
-                                metadata: indexRecord.metadata
+                                metadata: indexRecord.metadata,
+                                chunkCount: indexRecord.chunkCount || 0
                             });
                         };
                         indexRequest.onerror = () => reject(indexRequest.error);
+                    } catch (error) {
+                        reject(error);
+                    }
+                });
+            }
+
+            function loadChunks(chunkIds) {
+                return new Promise(async (resolve, reject) => {
+                    if (!db) { reject(new Error('DB not initialized')); return; }
+                    
+                    try {
+                        const transaction = db.transaction([STORE_NAME], 'readonly');
+                        const store = transaction.objectStore(STORE_NAME);
+                        const chunks = [];
+                        
+                        for (const chunkId of chunkIds) {
+                            const request = store.get(FEATURES_PREFIX + chunkId);
+                            const chunk = await new Promise((res, rej) => {
+                                request.onsuccess = () => res(request.result?.data);
+                                request.onerror = () => rej(request.error);
+                            });
+                            
+                            if (chunk) {
+                                chunks.push({ id: chunkId, features: chunk });
+                            }
+                        }
+                        
+                        resolve(chunks);
                     } catch (error) {
                         reject(error);
                     }
@@ -220,6 +226,9 @@ export class StorageManager {
                         case 'loadSpatialIndex':
                             postMessage({ action: 'progress', id, message: 'Loading spatial index...' });
                             result = await loadSpatialIndex();
+                            break;
+                        case 'loadChunks':
+                            result = await loadChunks(payload.chunkIds);
                             break;
                         case 'getMetadata':
                             result = await getMetadata();
@@ -379,19 +388,18 @@ export class StorageManager {
     }
 
     /**
-     * Load spatial index with feature chunks
+     * Load spatial index (lazy mode - without features)
      */
     async loadSpatialIndex() {
         try {
-            console.log('Loading spatial index from IndexedDB...');
+            console.log('Loading spatial index structure from IndexedDB...');
             const startTime = performance.now();
 
             const result = await this.sendToWorker('loadSpatialIndex');
 
             if (result) {
                 const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
-                const featureCount = result.featureChunks.reduce((sum, chunk) => sum + chunk.length, 0);
-                console.log(`Loaded spatial index in ${elapsed}s (${featureCount} features, ${result.featureChunks.length} chunks)`);
+                console.log(`Loaded spatial index in ${elapsed}s (${result.chunkCount} chunks available, lazy loading enabled)`);
             }
 
             return result;

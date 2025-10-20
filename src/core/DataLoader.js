@@ -56,7 +56,7 @@ export class DataLoader {
     }
 
     /**
-     * Restore buildings data from IndexedDB (spatial index format)
+     * Restore buildings data from IndexedDB (spatial index format with lazy loading)
      */
     async restoreData() {
         try {
@@ -66,31 +66,33 @@ export class DataLoader {
             const result = await this.storage.loadSpatialIndex();
 
             if (result) {
-                // Create spatial index and deserialize
+                // Create spatial index and deserialize (grid structure only)
                 this.spatialIndex = new SpatialIndex();
                 this.spatialIndex.deserialize(result.indexData);
-                this.spatialIndex.loadFeatureChunks(result.featureChunks);
 
-                const featureCount = this.spatialIndex.getFeatureCount();
-                if (featureCount > 0) {
-                    // Show stored data info
-                    const metadata = result.metadata;
-                    if (metadata) {
-                        console.log(`📦 Stored file: ${metadata.filename} (${(metadata.filesize / 1024 / 1024).toFixed(1)}MB)`);
-                        console.log(`📅 Uploaded: ${new Date(metadata.uploadDate).toLocaleString()}`);
-                        console.log(`🗺️ Spatial index: ${this.spatialIndex.grid.size} grid cells`);
-                    }
+                // Enable lazy loading with chunk loader
+                this.spatialIndex.enableLazyLoading(async (chunkIds) => {
+                    return await this.storage.loadChunks(chunkIds);
+                });
 
-                    // Hide modal since we have data
-                    this.ui.hideModal();
-                    // Dispatch event with spatial index
-                    setTimeout(() => {
-                        window.dispatchEvent(new CustomEvent('buildingsLoaded', {
-                            detail: this.spatialIndex
-                        }));
-                    }, 100);
-                    return true;
+                // Show stored data info
+                const metadata = result.metadata;
+                if (metadata) {
+                    console.log(`📦 Stored file: ${metadata.filename} (${(metadata.filesize / 1024 / 1024).toFixed(1)}MB)`);
+                    console.log(`📅 Uploaded: ${new Date(metadata.uploadDate).toLocaleString()}`);
+                    console.log(`🗺️ Spatial index: ${this.spatialIndex.grid.size} grid cells`);
+                    console.log(`💾 Lazy loading: ${result.chunkCount} chunks available`);
                 }
+
+                // Hide modal since we have data
+                this.ui.hideModal();
+                // Dispatch event with spatial index
+                setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('buildingsLoaded', {
+                        detail: this.spatialIndex
+                    }));
+                }, 100);
+                return true;
             }
         } catch (error) {
             console.error('Failed to restore spatial index:', error);

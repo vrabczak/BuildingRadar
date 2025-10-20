@@ -5,9 +5,19 @@
 export class SpatialIndex {
     constructor(cellSize = 0.01) { // ~1km at equator
         this.cellSize = cellSize;
-        this.grid = new Map();
-        this.allFeatures = [];
+        this.grid = new Map(); // cellKey -> [featureIndices]
+        this.allFeatures = []; // Legacy: all features in memory
+        this.featureCount = 0; // Total count (works in both modes)
         this.isLoaded = false;
+
+        // Lazy loading support
+        this.lazyMode = false;
+        this.chunkMap = new Map(); // chunkId -> [features]
+        this.chunkMetadata = new Map(); // cellKey -> chunkId
+        this.loadedChunks = new Set(); // Set of loaded chunkIds
+        this.chunkCache = []; // LRU cache: [{id, lastAccess}]
+        this.maxCachedChunks = 10; // Keep 10 chunks in memory
+        this.chunkLoader = null; // Function to load chunk by ID
     }
 
     /**
@@ -27,6 +37,7 @@ export class SpatialIndex {
         const startTime = performance.now();
 
         this.allFeatures = geojson.features;
+        this.featureCount = geojson.features.length;
         this.grid.clear();
 
         geojson.features.forEach((feature, index) => {
@@ -43,56 +54,80 @@ export class SpatialIndex {
 
         const endTime = performance.now();
         console.log(`Spatial index built in ${(endTime - startTime).toFixed(2)}ms`);
-        console.log(`Grid cells: ${this.grid.size}, Features: ${this.allFeatures.length}`);
+        console.log(`Grid cells: ${this.grid.size}, Features: ${this.featureCount}`);
     }
 
     /**
-     * Query features within radius of a point
+     * Query all features within radius of a point
+     * In lazy mode, automatically loads required chunks
      */
-    queryRadius(centerLon, centerLat, radiusMeters) {
-        // Convert radius to degrees (approximate)
-        const radiusDeg = radiusMeters / 111320; // meters to degrees at equator
+    async queryRadius(lon, lat, radius) {
+        const features = [];
+        const centerKey = this.getCellKey(lon, lat);
+        const [centerX, centerY] = this.parseCellKey(centerKey);
 
-        // Calculate cell range to check
-        const cellRadius = Math.ceil(radiusDeg / this.cellSize);
-        const centerCellX = Math.floor(centerLon / this.cellSize);
-        const centerCellY = Math.floor(centerLat / this.cellSize);
+        // Calculate grid cell range to check
+        const cellRange = Math.ceil(radius / (this.cellSize * 111000)); // Approximate degrees
 
-        const results = [];
-        const radiusSquared = radiusDeg * radiusDeg;
+        // Collect needed chunks in lazy mode
+        if (this.lazyMode) {
+            const neededChunks = new Set();
+            for (let dx = -cellRange; dx <= cellRange; dx++) {
+                for (let dy = -cellRange; dy <= cellRange; dy++) {
+                    const checkKey = this.getCellKey(
+                        centerX + dx * this.cellSize,
+                        centerY + dy * this.cellSize
+                    );
+                    const chunkId = this.chunkMetadata.get(checkKey);
+                    if (chunkId !== undefined) {
+                        neededChunks.add(chunkId);
+                    }
+                }
+            }
 
-        // Check cells in range
-        for (let dx = -cellRadius; dx <= cellRadius; dx++) {
-            for (let dy = -cellRadius; dy <= cellRadius; dy++) {
-                const key = `${centerCellX + dx},${centerCellY + dy}`;
-                const cellIndices = this.grid.get(key);
+            // Load needed chunks
+            await this.ensureChunksLoaded(Array.from(neededChunks));
 
-                if (cellIndices) {
-                    cellIndices.forEach(index => {
-                        const feature = this.allFeatures[index];
-                        const [lon, lat] = feature.geometry.coordinates;
+            // Prefetch neighboring chunks for smooth movement
+            this.prefetchNeighboringChunks(centerKey, cellRange);
+        }
 
-                        // Calculate distance squared (faster than sqrt)
-                        const dLon = lon - centerLon;
-                        const dLat = lat - centerLat;
-                        const distSquared = dLon * dLon + dLat * dLat;
+        // Query features from loaded data
+        for (let dx = -cellRange; dx <= cellRange; dx++) {
+            for (let dy = -cellRange; dy <= cellRange; dy++) {
+                const checkKey = this.getCellKey(
+                    centerX + dx * this.cellSize,
+                    centerY + dy * this.cellSize
+                );
 
-                        if (distSquared <= radiusSquared) {
-                            results.push(feature);
+                const indices = this.grid.get(checkKey);
+                if (indices) {
+                    for (const idx of indices) {
+                        const feature = this.getFeature(idx);
+                        if (feature) {
+                            const [fLon, fLat] = feature.geometry.coordinates;
+                            const distance = this.calculateDistance(lat, lon, fLat, fLon);
+
+                            if (distance <= radius) {
+                                features.push({
+                                    ...feature,
+                                    distance
+                                });
+                            }
                         }
-                    });
+                    }
                 }
             }
         }
 
-        return results;
+        return features;
     }
 
     /**
      * Get total number of indexed features
      */
     getFeatureCount() {
-        return this.allFeatures.length;
+        return this.lazyMode ? this.featureCount : this.allFeatures.length;
     }
 
     /**
@@ -133,10 +168,27 @@ export class SpatialIndex {
             gridObject[key] = indices;
         }
 
+        // Build chunk metadata: map grid cells to chunk IDs
+        const chunkMetadata = {};
+        let currentChunk = 0;
+        const chunkSize = 10000;
+
+        for (const [key, indices] of this.grid.entries()) {
+            // Determine which chunk(s) this cell's features belong to
+            const chunkIds = new Set();
+            for (const idx of indices) {
+                const chunkId = Math.floor(idx / chunkSize);
+                chunkIds.add(chunkId);
+            }
+            // For simplicity, assign to first chunk (most features will be in one)
+            chunkMetadata[key] = Math.min(...chunkIds);
+        }
+
         return {
             cellSize: this.cellSize,
             grid: gridObject,
             featureCount: this.allFeatures.length,
+            chunkMetadata: chunkMetadata,
             // Features stored separately in chunks
         };
     }
@@ -167,7 +219,12 @@ export class SpatialIndex {
             this.grid.set(key, indices);
         }
 
-        // Features loaded separately
+        // Set chunk metadata for lazy loading
+        if (data.chunkMetadata) {
+            this.setChunkMetadata(data.chunkMetadata);
+        }
+
+        // Features loaded separately (or on-demand in lazy mode)
         this.isLoaded = true;
     }
 
@@ -180,7 +237,137 @@ export class SpatialIndex {
         for (const chunk of chunks) {
             this.allFeatures.push(...chunk);
         }
-        console.log(`Loaded ${this.allFeatures.length} features from ${chunks.length} chunks`);
+        this.featureCount = this.allFeatures.length;
+        console.log(`Loaded ${this.featureCount} features from ${chunks.length} chunks`);
+    }
+
+    /**
+     * Get feature by index (handles lazy loading)
+     */
+    getFeature(index) {
+        if (this.lazyMode) {
+            // In lazy mode, search in loaded chunks
+            for (const [chunkId, features] of this.chunkMap.entries()) {
+                if (this.loadedChunks.has(chunkId)) {
+                    const feature = features[index];
+                    if (feature) return feature;
+                }
+            }
+            return null;
+        }
+        return this.allFeatures[index];
+    }
+
+    /**
+     * Enable lazy loading mode
+     */
+    enableLazyLoading(chunkLoader) {
+        this.lazyMode = true;
+        this.chunkLoader = chunkLoader;
+        console.log('Lazy loading enabled with chunk loader');
+    }
+
+    /**
+     * Ensure required chunks are loaded
+     */
+    async ensureChunksLoaded(chunkIds) {
+        const toLoad = chunkIds.filter(id => !this.loadedChunks.has(id));
+
+        if (toLoad.length > 0 && this.chunkLoader) {
+            console.log(`Loading ${toLoad.length} chunks...`);
+            const chunks = await this.chunkLoader(toLoad);
+
+            for (const { id, features } of chunks) {
+                this.chunkMap.set(id, features);
+                this.loadedChunks.add(id);
+                this.updateChunkCache(id);
+            }
+
+            // Evict old chunks if cache is full
+            this.evictOldChunks();
+        } else {
+            // Just update access time for already loaded chunks
+            chunkIds.forEach(id => {
+                if (this.loadedChunks.has(id)) {
+                    this.updateChunkCache(id);
+                }
+            });
+        }
+    }
+
+    /**
+     * Update LRU cache
+     */
+    updateChunkCache(chunkId) {
+        const now = Date.now();
+        const existing = this.chunkCache.find(c => c.id === chunkId);
+
+        if (existing) {
+            existing.lastAccess = now;
+        } else {
+            this.chunkCache.push({ id: chunkId, lastAccess: now });
+        }
+    }
+
+    /**
+     * Evict least recently used chunks
+     */
+    evictOldChunks() {
+        if (this.chunkCache.length <= this.maxCachedChunks) return;
+
+        // Sort by last access time
+        this.chunkCache.sort((a, b) => a.lastAccess - b.lastAccess);
+
+        // Remove oldest chunks
+        const toRemove = this.chunkCache.splice(0, this.chunkCache.length - this.maxCachedChunks);
+
+        for (const { id } of toRemove) {
+            this.chunkMap.delete(id);
+            this.loadedChunks.delete(id);
+        }
+
+        console.log(`Evicted ${toRemove.length} chunks from cache`);
+    }
+
+    /**
+     * Prefetch neighboring chunks for smooth movement
+     */
+    prefetchNeighboringChunks(centerKey, range) {
+        if (!this.lazyMode || !this.chunkLoader) return;
+
+        const [centerX, centerY] = this.parseCellKey(centerKey);
+        const prefetchChunks = new Set();
+
+        // Prefetch chunks in larger radius
+        const prefetchRange = range + 2;
+
+        for (let dx = -prefetchRange; dx <= prefetchRange; dx++) {
+            for (let dy = -prefetchRange; dy <= prefetchRange; dy++) {
+                const checkKey = this.getCellKey(
+                    centerX + dx * this.cellSize,
+                    centerY + dy * this.cellSize
+                );
+                const chunkId = this.chunkMetadata.get(checkKey);
+                if (chunkId !== undefined && !this.loadedChunks.has(chunkId)) {
+                    prefetchChunks.add(chunkId);
+                }
+            }
+        }
+
+        // Load in background (don't await)
+        if (prefetchChunks.size > 0) {
+            this.ensureChunksLoaded(Array.from(prefetchChunks)).catch(err => {
+                console.warn('Prefetch failed:', err);
+            });
+        }
+    }
+
+    /**
+     * Set chunk metadata for lazy loading
+     */
+    setChunkMetadata(chunkMetadata) {
+        this.chunkMetadata = new Map(Object.entries(chunkMetadata));
+        console.log(`Chunk metadata loaded: ${this.chunkMetadata.size} grid cells mapped to chunks`);
     }
 
     /**
@@ -191,7 +378,10 @@ export class SpatialIndex {
             cellSize: this.cellSize,
             gridCells: this.grid.size,
             featureCount: this.allFeatures.length,
-            isLoaded: this.isLoaded
+            isLoaded: this.isLoaded,
+            lazyMode: this.lazyMode,
+            loadedChunks: this.loadedChunks.size,
+            cachedChunks: this.chunkCache.length
         };
     }
 }

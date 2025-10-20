@@ -70,36 +70,51 @@ export class BuildingRadar {
     }
 
     /**
-     * Initialize the application
+     * Initialize the application (does NOT start GPS)
      */
     async initialize() {
         try {
-            this.ui.showLoading('Initializing GPS...');
-            this.ui.updateGPSStatus('connecting');
-
             if (this.spatialIndex) {
                 const featureCount = this.spatialIndex.getFeatureCount();
-                console.log(`Loaded ${featureCount} buildings`);
+                console.log(`BuildingRadar initialized with ${featureCount} buildings`);
                 // Initially no buildings visible until GPS position is received
                 this.display.updateBuildings([]);
             }
+
+            console.log('BuildingRadar initialized (GPS not started yet)');
+        } catch (error) {
+            console.error('Failed to initialize BuildingRadar:', error);
+            this.ui.showError(error.message || 'Failed to initialize');
+        }
+    }
+
+    /**
+     * Start GPS tracking (requests location permission)
+     */
+    async startGPS() {
+        try {
+            this.ui.showLoading('Starting GPS...');
+            this.ui.updateGPSStatus('connecting');
 
             if (this.isIOSStandalone()) {
                 this.ui.hideLoading();
                 this.ui.showError('For location access, please tap Retry');
                 this.ui.updateGPSStatus('disconnected');
-                return;
+                return false;
             }
 
             await this.gps.start();
             this.startUpdateLoop();
             this.isRunning = true;
+            this.ui.hideLoading();
 
-            console.log('BuildingRadar initialized successfully');
+            console.log('GPS started successfully');
+            return true;
         } catch (error) {
-            console.error('Failed to initialize BuildingRadar:', error);
-            this.ui.showError(error.message || 'Failed to initialize GPS');
+            console.error('Failed to start GPS:', error);
+            this.ui.showError(error.message || 'Failed to start GPS');
             this.ui.updateGPSStatus('disconnected');
+            return false;
         }
     }
 
@@ -115,20 +130,23 @@ export class BuildingRadar {
         // Update UI with accuracy
         this.ui.updateAccuracy(position.accuracy);
 
-        // Calculate visible buildings using spatial index
-        this.updateVisibleBuildings(position);
+        // Calculate visible buildings using spatial index (async for lazy loading)
+        this.updateVisibleBuildings(position).catch(err => {
+            console.error('Failed to update visible buildings:', err);
+        });
     }
 
     /**
      * Update visible buildings within radar range using spatial index
+     * Async to support lazy loading of chunks
      */
-    updateVisibleBuildings(position) {
-        if (!this.buildingsData || !this.buildingsData.features) return;
+    async updateVisibleBuildings(position) {
+        if (!this.spatialIndex) return;
 
         const radarRange = this.settings.get('radarRange');
 
-        // Use spatial index for fast query (much faster than filtering all features)
-        this.visibleBuildings = this.spatialIndex.queryRadius(
+        // Use spatial index for fast query (async for lazy loading)
+        this.visibleBuildings = await this.spatialIndex.queryRadius(
             position.longitude,
             position.latitude,
             radarRange
@@ -196,10 +214,12 @@ export class BuildingRadar {
     startUpdateLoop() {
         const refreshInterval = this.settings.get('refreshInterval');
 
-        this.updateInterval = setInterval(() => {
+        this.updateInterval = setInterval(async () => {
             const lastPosition = this.gps.getLastPosition();
             if (lastPosition) {
-                this.updateVisibleBuildings(lastPosition);
+                await this.updateVisibleBuildings(lastPosition).catch(err => {
+                    console.error('Failed to update visible buildings:', err);
+                });
             }
         }, refreshInterval);
 

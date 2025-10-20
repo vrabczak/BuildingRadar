@@ -194,8 +194,17 @@ function initApp() {
 
             console.log(`Spatial index loaded: ${spatialIndex.getFeatureCount()} features`);
 
-            // Create and start the application with spatial index
+            // Create the application with spatial index
             app = new BuildingRadar(spatialIndex);
+
+            // Start GPS (requests location permission)
+            app.startGPS().then(started => {
+                if (started) {
+                    console.log('GPS started - location permission granted');
+                } else {
+                    console.log('GPS failed to start - permission may have been denied');
+                }
+            });
 
             // Handle page visibility changes to manage resources
             document.addEventListener('visibilitychange', () => {
