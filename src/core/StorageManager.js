@@ -1,11 +1,14 @@
 /**
  * StorageManager - Handles IndexedDB operations via Web Worker to prevent UI blocking
+ * Stores spatial index structure with chunked features for memory efficiency
  */
 export class StorageManager {
     constructor() {
         this.storageKey = 'buildingRadarData';
+        this.indexKey = 'spatialIndex';
+        this.featuresPrefix = 'features_chunk_';
         this.dbName = 'BuildingRadarDB';
-        this.dbVersion = 1;
+        this.dbVersion = 2; // Increment version for new schema
         this.messageId = 0;
         this.pendingMessages = new Map();
         this.worker = null;
@@ -19,9 +22,11 @@ export class StorageManager {
         const workerCode = `
             let db = null;
             const DB_NAME = 'BuildingRadarDB';
-            const DB_VERSION = 1;
+            const DB_VERSION = 2;
             const STORE_NAME = 'buildings';
             const STORAGE_KEY = 'buildingRadarData';
+            const INDEX_KEY = 'spatialIndex';
+            const FEATURES_PREFIX = 'features_chunk_';
 
             function initDB() {
                 return new Promise((resolve, reject) => {
@@ -36,35 +41,132 @@ export class StorageManager {
                         if (!database.objectStoreNames.contains(STORE_NAME)) {
                             database.createObjectStore(STORE_NAME, { keyPath: 'id' });
                         }
+                        // Migration: Clear old format data if upgrading
+                        if (event.oldVersion < 2) {
+                            console.log('Upgrading database schema to v2 (spatial index format)');
+                        }
                     };
                 });
             }
 
-            function getData() {
-                return new Promise((resolve, reject) => {
+            function saveSpatialIndex(indexData, featureChunks, metadata = {}) {
+                return new Promise(async (resolve, reject) => {
                     if (!db) { reject(new Error('DB not initialized')); return; }
-                    const transaction = db.transaction([STORE_NAME], 'readonly');
-                    const store = transaction.objectStore(STORE_NAME);
-                    const request = store.get(STORAGE_KEY);
-                    request.onsuccess = () => resolve(request.result?.data);
-                    request.onerror = () => reject(request.error);
+                    
+                    try {
+                        // Clear old chunk data first
+                        await clearFeatureChunks();
+                        
+                        const transaction = db.transaction([STORE_NAME], 'readwrite');
+                        const store = transaction.objectStore(STORE_NAME);
+                        
+                        // Save index structure
+                        const indexRecord = {
+                            id: INDEX_KEY,
+                            data: indexData,
+                            metadata: metadata,
+                            chunkCount: featureChunks.length,
+                            timestamp: Date.now()
+                        };
+                        store.put(indexRecord);
+                        
+                        // Save feature chunks
+                        for (let i = 0; i < featureChunks.length; i++) {
+                            const chunkRecord = {
+                                id: FEATURES_PREFIX + i,
+                                data: featureChunks[i],
+                                chunkIndex: i
+                            };
+                            store.put(chunkRecord);
+                            
+                            if (i % 10 === 0) {
+                                postMessage({ 
+                                    action: 'progress', 
+                                    message: \`Saving chunk \${i + 1}/\${featureChunks.length}...\` 
+                                });
+                            }
+                        }
+                        
+                        transaction.oncomplete = () => resolve();
+                        transaction.onerror = () => reject(transaction.error);
+                    } catch (error) {
+                        reject(error);
+                    }
                 });
             }
 
-            function saveData(data, metadata = {}) {
-                return new Promise((resolve, reject) => {
+            function loadSpatialIndex() {
+                return new Promise(async (resolve, reject) => {
                     if (!db) { reject(new Error('DB not initialized')); return; }
+                    
+                    try {
+                        const transaction = db.transaction([STORE_NAME], 'readonly');
+                        const store = transaction.objectStore(STORE_NAME);
+                        
+                        // Load index structure
+                        const indexRequest = store.get(INDEX_KEY);
+                        indexRequest.onsuccess = async () => {
+                            const indexRecord = indexRequest.result;
+                            if (!indexRecord) {
+                                resolve(null);
+                                return;
+                            }
+                            
+                            const chunkCount = indexRecord.chunkCount || 0;
+                            const featureChunks = [];
+                            
+                            // Load all feature chunks
+                            for (let i = 0; i < chunkCount; i++) {
+                                const chunkRequest = store.get(FEATURES_PREFIX + i);
+                                const chunk = await new Promise((res, rej) => {
+                                    chunkRequest.onsuccess = () => res(chunkRequest.result?.data);
+                                    chunkRequest.onerror = () => rej(chunkRequest.error);
+                                });
+                                
+                                if (chunk) {
+                                    featureChunks.push(chunk);
+                                }
+                                
+                                if (i % 10 === 0) {
+                                    postMessage({ 
+                                        action: 'progress', 
+                                        message: \`Loading chunk \${i + 1}/\${chunkCount}...\` 
+                                    });
+                                }
+                            }
+                            
+                            resolve({
+                                indexData: indexRecord.data,
+                                featureChunks: featureChunks,
+                                metadata: indexRecord.metadata
+                            });
+                        };
+                        indexRequest.onerror = () => reject(indexRequest.error);
+                    } catch (error) {
+                        reject(error);
+                    }
+                });
+            }
+
+            function clearFeatureChunks() {
+                return new Promise((resolve, reject) => {
+                    if (!db) { resolve(); return; }
+                    
                     const transaction = db.transaction([STORE_NAME], 'readwrite');
                     const store = transaction.objectStore(STORE_NAME);
-                    const record = { 
-                        id: STORAGE_KEY, 
-                        data: data, 
-                        metadata: metadata,
-                        timestamp: Date.now() 
+                    
+                    // Get all keys and delete chunk keys
+                    const getAllKeysRequest = store.getAllKeys();
+                    getAllKeysRequest.onsuccess = () => {
+                        const keys = getAllKeysRequest.result;
+                        const chunkKeys = keys.filter(key => 
+                            typeof key === 'string' && key.startsWith(FEATURES_PREFIX)
+                        );
+                        
+                        chunkKeys.forEach(key => store.delete(key));
+                        resolve();
                     };
-                    const request = store.put(record);
-                    request.onsuccess = () => resolve();
-                    request.onerror = () => reject(request.error);
+                    getAllKeysRequest.onerror = () => reject(getAllKeysRequest.error);
                 });
             }
 
@@ -73,20 +175,31 @@ export class StorageManager {
                     if (!db) { reject(new Error('DB not initialized')); return; }
                     const transaction = db.transaction([STORE_NAME], 'readonly');
                     const store = transaction.objectStore(STORE_NAME);
-                    const request = store.get(STORAGE_KEY);
+                    const request = store.get(INDEX_KEY);
                     request.onsuccess = () => resolve(request.result?.metadata || null);
                     request.onerror = () => reject(request.error);
                 });
             }
 
             function clearData() {
-                return new Promise((resolve, reject) => {
+                return new Promise(async (resolve, reject) => {
                     if (!db) { reject(new Error('DB not initialized')); return; }
-                    const transaction = db.transaction([STORE_NAME], 'readwrite');
-                    const store = transaction.objectStore(STORE_NAME);
-                    const request = store.delete(STORAGE_KEY);
-                    request.onsuccess = () => resolve();
-                    request.onerror = () => reject(request.error);
+                    
+                    try {
+                        const transaction = db.transaction([STORE_NAME], 'readwrite');
+                        const store = transaction.objectStore(STORE_NAME);
+                        
+                        // Delete spatial index
+                        store.delete(INDEX_KEY);
+                        
+                        // Delete all feature chunks
+                        await clearFeatureChunks();
+                        
+                        transaction.oncomplete = () => resolve();
+                        transaction.onerror = () => reject(transaction.error);
+                    } catch (error) {
+                        reject(error);
+                    }
                 });
             }
 
@@ -99,15 +212,14 @@ export class StorageManager {
                             await initDB();
                             result = { success: true };
                             break;
-                        case 'get':
-                            postMessage({ action: 'progress', id, message: 'Loading from IndexedDB...' });
-                            result = await getData();
-                            break;
-                        case 'save':
-                            const count = payload?.data?.features?.length || 0;
-                            postMessage({ action: 'progress', id, message: \`Saving \${count} features...\` });
-                            await saveData(payload.data, payload.metadata);
+                        case 'saveSpatialIndex':
+                            postMessage({ action: 'progress', id, message: 'Saving spatial index...' });
+                            await saveSpatialIndex(payload.indexData, payload.featureChunks, payload.metadata);
                             result = { success: true };
+                            break;
+                        case 'loadSpatialIndex':
+                            postMessage({ action: 'progress', id, message: 'Loading spatial index...' });
+                            result = await loadSpatialIndex();
                             break;
                         case 'getMetadata':
                             result = await getMetadata();
@@ -237,6 +349,55 @@ export class StorageManager {
             }
 
             return false;
+        }
+    }
+
+    /**
+     * Save spatial index with chunked features (memory-efficient)
+     */
+    async saveSpatialIndex(indexData, featureChunks, metadata = {}) {
+        try {
+            const totalFeatures = featureChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+            console.log(`Saving spatial index: ${featureChunks.length} chunks, ${totalFeatures} features`);
+            const startTime = performance.now();
+
+            const payload = {
+                indexData: indexData,
+                featureChunks: featureChunks,
+                metadata: metadata
+            };
+
+            await this.sendToWorker('saveSpatialIndex', payload);
+
+            const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+            console.log(`Spatial index saved in ${elapsed}s`);
+            return true;
+        } catch (error) {
+            console.error('Failed to save spatial index:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Load spatial index with feature chunks
+     */
+    async loadSpatialIndex() {
+        try {
+            console.log('Loading spatial index from IndexedDB...');
+            const startTime = performance.now();
+
+            const result = await this.sendToWorker('loadSpatialIndex');
+
+            if (result) {
+                const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+                const featureCount = result.featureChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+                console.log(`Loaded spatial index in ${elapsed}s (${featureCount} features, ${result.featureChunks.length} chunks)`);
+            }
+
+            return result;
+        } catch (error) {
+            console.error('Failed to load spatial index:', error);
+            return null;
         }
     }
 

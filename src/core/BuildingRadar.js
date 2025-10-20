@@ -9,18 +9,20 @@ import { SpatialIndex } from './SpatialIndex.js';
  * Manages GPS tracking, UI updates and visualization
  */
 export class BuildingRadar {
-    constructor(buildingsData) {
-        this.buildingsData = buildingsData;
+    constructor(spatialIndex) {
+        if (!spatialIndex || typeof spatialIndex.queryRadius !== 'function') {
+            throw new Error('BuildingRadar requires a valid SpatialIndex instance');
+        }
+
+        this.spatialIndex = spatialIndex;
+        console.log(`Using spatial index with ${spatialIndex.getFeatureCount()} features`);
+
         this.settings = new SettingsManager();
         this.ui = new UIManager();
         this.gps = new GPSManager(this.settings.getGPSSettings());
         this.display = new DisplayManager('radarCanvas', {
             radarRange: this.settings.get('radarRange')
         });
-
-        // Initialize spatial index for fast queries
-        this.spatialIndex = new SpatialIndex();
-        this.spatialIndex.indexFeatures(buildingsData);
 
         this.updateInterval = null;
         this.isRunning = false;
@@ -75,8 +77,9 @@ export class BuildingRadar {
             this.ui.showLoading('Initializing GPS...');
             this.ui.updateGPSStatus('connecting');
 
-            if (this.buildingsData && this.buildingsData.features) {
-                console.log(`Loaded ${this.buildingsData.features.length} buildings`);
+            if (this.spatialIndex) {
+                const featureCount = this.spatialIndex.getFeatureCount();
+                console.log(`Loaded ${featureCount} buildings`);
                 // Initially no buildings visible until GPS position is received
                 this.display.updateBuildings([]);
             }

@@ -2,14 +2,16 @@ import { StorageManager } from './StorageManager.js';
 import { FileProcessor } from './FileProcessor.js';
 import { FileModalUI } from './FileModalUI.js';
 import { DeviceUtils } from './DeviceUtils.js';
+import { SpatialIndex } from './SpatialIndex.js';
 
 /**
  * DataLoader - Orchestrates file loading, storage, and UI for shapefile data
  * Coordinates between StorageManager, FileProcessor, and FileModalUI
+ * Uses spatial index for memory-efficient storage and loading
  */
 export class DataLoader {
     constructor() {
-        this.buildingsData = null;
+        this.spatialIndex = null;
         this.currentFileMetadata = null;
 
         // Initialize sub-components
@@ -54,39 +56,44 @@ export class DataLoader {
     }
 
     /**
-     * Restore buildings data from IndexedDB
+     * Restore buildings data from IndexedDB (spatial index format)
      */
     async restoreData() {
         try {
-            console.log('Restoring buildings data from IndexedDB...');
+            console.log('Restoring spatial index from IndexedDB...');
             this.ui.showStatus('Loading saved data...', 'loading');
 
-            const data = await this.storage.getData();
+            const result = await this.storage.loadSpatialIndex();
 
-            if (data) {
-                this.buildingsData = data;
-                const featureCount = this.buildingsData?.features?.length || 0;
+            if (result) {
+                // Create spatial index and deserialize
+                this.spatialIndex = new SpatialIndex();
+                this.spatialIndex.deserialize(result.indexData);
+                this.spatialIndex.loadFeatureChunks(result.featureChunks);
+
+                const featureCount = this.spatialIndex.getFeatureCount();
                 if (featureCount > 0) {
                     // Show stored data info
-                    const metadata = await this.storage.getMetadata();
+                    const metadata = result.metadata;
                     if (metadata) {
                         console.log(`📦 Stored file: ${metadata.filename} (${(metadata.filesize / 1024 / 1024).toFixed(1)}MB)`);
                         console.log(`📅 Uploaded: ${new Date(metadata.uploadDate).toLocaleString()}`);
+                        console.log(`🗺️ Spatial index: ${this.spatialIndex.grid.size} grid cells`);
                     }
 
                     // Hide modal since we have data
                     this.ui.hideModal();
-                    // Dispatch event so app can initialize
+                    // Dispatch event with spatial index
                     setTimeout(() => {
                         window.dispatchEvent(new CustomEvent('buildingsLoaded', {
-                            detail: this.buildingsData
+                            detail: this.spatialIndex
                         }));
                     }, 100);
                     return true;
                 }
             }
         } catch (error) {
-            console.error('Failed to restore buildings data:', error);
+            console.error('Failed to restore spatial index:', error);
             // Clear corrupted data
             await this.storage.clearData();
         }
@@ -148,24 +155,36 @@ export class DataLoader {
                 window.crashLogger.logEvent('FILE_LOAD_COMPLETE');
             }
 
-            this.ui.showStatus('Processing data...', 'loading');
-            this.buildingsData = this.fileProcessor.convertToGeoJSON(data);
+            // Build spatial index directly (memory-efficient)
+            this.ui.showStatus('Building spatial index...', 'loading');
+            console.log('Building spatial index from features...');
 
-            const featureCount = this.buildingsData.features.length;
-            console.log(`Loaded ${featureCount} features, memory:`, DeviceUtils.checkMemory());
+            this.spatialIndex = new SpatialIndex();
+            const geojson = this.fileProcessor.convertToGeoJSON(data);
 
-            // Save to IndexedDB for persistence
+            // Index features (this is fast and memory-efficient)
+            this.spatialIndex.indexFeatures(geojson);
+            const featureCount = this.spatialIndex.getFeatureCount();
+
+            console.log(`Indexed ${featureCount} features, memory:`, DeviceUtils.checkMemory());
+
+            // Save spatial index to IndexedDB (chunked for memory efficiency)
+            this.ui.showStatus('Saving to storage...', 'loading');
             if (window.crashLogger) {
-                window.crashLogger.logEvent('SAVING_DATA', { featureCount });
+                window.crashLogger.logEvent('SAVING_SPATIAL_INDEX', { featureCount });
             }
-            await this.storage.saveData(this.buildingsData, this.currentFileMetadata);
+
+            const indexData = this.spatialIndex.serialize();
+            const featureChunks = this.spatialIndex.serializeFeatures(10000); // 10k features per chunk
+
+            await this.storage.saveSpatialIndex(indexData, featureChunks, this.currentFileMetadata);
 
             this.ui.showStatus(`✓ Loaded ${featureCount} buildings successfully!`, 'success');
 
             setTimeout(() => {
                 this.ui.hideModal();
                 window.dispatchEvent(new CustomEvent('buildingsLoaded', {
-                    detail: this.buildingsData
+                    detail: this.spatialIndex
                 }));
             }, 1000);
         } catch (error) {
@@ -196,10 +215,10 @@ export class DataLoader {
     }
 
     /**
-     * Get buildings data
+     * Get spatial index
      */
-    getBuildingsData() {
-        return this.buildingsData;
+    getSpatialIndex() {
+        return this.spatialIndex;
     }
 
     /**
@@ -215,7 +234,12 @@ export class DataLoader {
     async getDataInfo() {
         const info = await this.storage.getDataInfo();
         if (info.exists) {
-            info.featureCount = this.buildingsData?.features?.length || 0;
+            info.featureCount = this.spatialIndex?.getFeatureCount() || 0;
+            if (this.spatialIndex) {
+                const metadata = this.spatialIndex.getMetadata();
+                info.gridCells = metadata.gridCells;
+                info.cellSize = metadata.cellSize;
+            }
         }
         return info;
     }
@@ -226,7 +250,7 @@ export class DataLoader {
     async clearStoredData() {
         const result = await this.storage.clearData();
         if (result) {
-            this.buildingsData = null;
+            this.spatialIndex = null;
         }
         return result;
     }

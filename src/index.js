@@ -186,11 +186,16 @@ function initApp() {
             }
             buildingsLoadedHandled = true;
 
-            const buildingsData = event.detail;
-            console.log(`Buildings data loaded: ${buildingsData.features.length} features`);
+            const spatialIndex = event.detail;
+            if (!spatialIndex || typeof spatialIndex.queryRadius !== 'function') {
+                console.error('Invalid spatial index received');
+                return;
+            }
 
-            // Create and start the application with loaded data
-            app = new BuildingRadar(buildingsData);
+            console.log(`Spatial index loaded: ${spatialIndex.getFeatureCount()} features`);
+
+            // Create and start the application with spatial index
+            app = new BuildingRadar(spatialIndex);
 
             // Handle page visibility changes to manage resources
             document.addEventListener('visibilitychange', () => {
@@ -214,9 +219,9 @@ function initApp() {
         });
 
         // Check if data was restored
-        const hasStoredData = dataLoader.getBuildingsData() !== null;
+        const hasStoredData = dataLoader.getSpatialIndex() !== null;
         if (hasStoredData) {
-            console.log('Buildings data restored from previous session');
+            console.log('Spatial index restored from previous session');
         } else {
             console.log('Waiting for shapefile to be loaded...');
         }

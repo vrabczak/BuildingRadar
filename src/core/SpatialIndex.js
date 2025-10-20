@@ -1,11 +1,13 @@
 /**
  * SpatialIndex - Grid-based spatial index for fast proximity queries
+ * Supports direct IndexedDB serialization for memory-efficient storage
  */
 export class SpatialIndex {
     constructor(cellSize = 0.01) { // ~1km at equator
         this.cellSize = cellSize;
         this.grid = new Map();
         this.allFeatures = [];
+        this.isLoaded = false;
     }
 
     /**
@@ -99,5 +101,97 @@ export class SpatialIndex {
     clear() {
         this.grid.clear();
         this.allFeatures = [];
+        this.isLoaded = false;
+    }
+
+    /**
+     * Add a single feature to the index (for streaming/chunked loading)
+     */
+    addFeature(feature) {
+        if (feature.geometry.type === 'Point') {
+            const [lon, lat] = feature.geometry.coordinates;
+            const key = this.getCellKey(lon, lat);
+
+            const index = this.allFeatures.length;
+            this.allFeatures.push(feature);
+
+            if (!this.grid.has(key)) {
+                this.grid.set(key, []);
+            }
+            this.grid.get(key).push(index);
+        }
+    }
+
+    /**
+     * Serialize to plain object for IndexedDB storage
+     * Returns chunked data to avoid memory spikes
+     */
+    serialize() {
+        // Convert Map to plain object with array values
+        const gridObject = {};
+        for (const [key, indices] of this.grid.entries()) {
+            gridObject[key] = indices;
+        }
+
+        return {
+            cellSize: this.cellSize,
+            grid: gridObject,
+            featureCount: this.allFeatures.length,
+            // Features stored separately in chunks
+        };
+    }
+
+    /**
+     * Serialize features in chunks for memory-efficient storage
+     * @param {number} chunkSize - Number of features per chunk
+     * @returns {Array} Array of feature chunks
+     */
+    serializeFeatures(chunkSize = 10000) {
+        const chunks = [];
+        for (let i = 0; i < this.allFeatures.length; i += chunkSize) {
+            chunks.push(this.allFeatures.slice(i, i + chunkSize));
+        }
+        return chunks;
+    }
+
+    /**
+     * Deserialize from IndexedDB storage
+     * @param {Object} data - Serialized index data
+     */
+    deserialize(data) {
+        this.cellSize = data.cellSize;
+
+        // Convert plain object back to Map
+        this.grid.clear();
+        for (const [key, indices] of Object.entries(data.grid)) {
+            this.grid.set(key, indices);
+        }
+
+        // Features loaded separately
+        this.isLoaded = true;
+    }
+
+    /**
+     * Load features from chunks
+     * @param {Array} chunks - Array of feature chunks
+     */
+    loadFeatureChunks(chunks) {
+        this.allFeatures = [];
+        for (const chunk of chunks) {
+            this.allFeatures.push(...chunk);
+        }
+        console.log(`Loaded ${this.allFeatures.length} features from ${chunks.length} chunks`);
+    }
+
+    /**
+     * Get index metadata
+     */
+    getMetadata() {
+        return {
+            cellSize: this.cellSize,
+            gridCells: this.grid.size,
+            featureCount: this.allFeatures.length,
+            isLoaded: this.isLoaded
+        };
     }
 }
