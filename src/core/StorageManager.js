@@ -188,18 +188,22 @@ export class StorageManager {
             }
 
             function clearData() {
-                return new Promise(async (resolve, reject) => {
+                return new Promise((resolve, reject) => {
                     if (!db) { reject(new Error('DB not initialized')); return; }
                     
                     try {
                         const transaction = db.transaction([STORE_NAME], 'readwrite');
                         const store = transaction.objectStore(STORE_NAME);
                         
-                        // Delete spatial index
-                        store.delete(INDEX_KEY);
-                        
-                        // Delete all feature chunks
-                        await clearFeatureChunks();
+                        // Get all keys first
+                        const getAllKeysRequest = store.getAllKeys();
+                        getAllKeysRequest.onsuccess = () => {
+                            const keys = getAllKeysRequest.result;
+                            
+                            // Delete all keys (index + chunks)
+                            keys.forEach(key => store.delete(key));
+                        };
+                        getAllKeysRequest.onerror = () => reject(getAllKeysRequest.error);
                         
                         transaction.oncomplete = () => resolve();
                         transaction.onerror = () => reject(transaction.error);
@@ -406,6 +410,21 @@ export class StorageManager {
         } catch (error) {
             console.error('Failed to load spatial index:', error);
             return null;
+        }
+    }
+
+    /**
+     * Load specific feature chunks by ID
+     * @param {Array<number>} chunkIds - Array of chunk IDs to load
+     * @returns {Promise<Array>} Array of loaded chunks
+     */
+    async loadChunks(chunkIds) {
+        try {
+            const result = await this.sendToWorker('loadChunks', { chunkIds });
+            return result;
+        } catch (error) {
+            console.error('Failed to load chunks:', error);
+            return [];
         }
     }
 

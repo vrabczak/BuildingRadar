@@ -30,6 +30,16 @@ export class SpatialIndex {
     }
 
     /**
+     * Parse cell key string to coordinates
+     * @param {string} cellKey - Cell key in format "x,y"
+     * @returns {Array<number>} [x, y] coordinates
+     */
+    parseCellKey(cellKey) {
+        const [x, y] = cellKey.split(',').map(Number);
+        return [x, y];
+    }
+
+    /**
      * Index all features from GeoJSON
      */
     indexFeatures(geojson) {
