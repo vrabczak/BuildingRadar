@@ -222,6 +222,7 @@ export class SpatialIndex {
      */
     deserialize(data) {
         this.cellSize = data.cellSize;
+        this.featureCount = data.featureCount || 0; // Restore feature count
 
         // Convert plain object back to Map
         this.grid.clear();
