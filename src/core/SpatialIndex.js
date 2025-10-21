@@ -79,6 +79,8 @@ export class SpatialIndex {
         // Calculate grid cell range to check
         const cellRange = Math.ceil(radius / (this.cellSize * 111000)); // Approximate degrees
 
+        console.log(`🔍 Query at [${lat.toFixed(6)}, ${lon.toFixed(6)}], radius=${radius}m, cellRange=${cellRange}`);
+
         // Collect needed chunks in lazy mode
         if (this.lazyMode) {
             const neededChunks = new Set();
@@ -94,6 +96,8 @@ export class SpatialIndex {
                     }
                 }
             }
+
+            console.log(`📦 Need ${neededChunks.size} chunks for this query`);
 
             // Load needed chunks
             await this.ensureChunksLoaded(Array.from(neededChunks));
