@@ -167,20 +167,28 @@ export class StorageManager {
                         const store = transaction.objectStore(STORE_NAME);
                         const chunks = [];
                         
+                        console.log('[Worker] Loading chunks: ' + chunkIds.join(','));
+                        
                         for (const chunkId of chunkIds) {
-                            const request = store.get(FEATURES_PREFIX + chunkId);
-                            const chunk = await new Promise((res, rej) => {
-                                request.onsuccess = () => res(request.result?.data);
+                            const key = FEATURES_PREFIX + chunkId;
+                            const request = store.get(key);
+                            const chunkRecord = await new Promise((res, rej) => {
+                                request.onsuccess = () => res(request.result);
                                 request.onerror = () => rej(request.error);
                             });
                             
-                            if (chunk) {
-                                chunks.push({ id: chunkId, features: chunk });
+                            if (chunkRecord && chunkRecord.data) {
+                                console.log('[Worker] Chunk ' + chunkId + ': ' + chunkRecord.data.length + ' features');
+                                chunks.push({ id: chunkId, features: chunkRecord.data });
+                            } else {
+                                console.warn('[Worker] Chunk ' + chunkId + ' not found or empty! Key: ' + key);
                             }
                         }
                         
+                        console.log('[Worker] Returning ' + chunks.length + ' chunks with total features: ' + chunks.reduce((sum, c) => sum + c.features.length, 0));
                         resolve(chunks);
                     } catch (error) {
+                        console.error('[Worker] Error loading chunks:', error);
                         reject(error);
                     }
                 });

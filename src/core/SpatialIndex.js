@@ -149,6 +149,8 @@ export class SpatialIndex {
             }
         }
 
+        console.log('✅ Found ' + features.length + ' buildings within ' + radius + 'm');
+
         return features;
     }
 
@@ -276,12 +278,21 @@ export class SpatialIndex {
      */
     getFeature(index) {
         if (this.lazyMode) {
-            // In lazy mode, search in loaded chunks
-            for (const [chunkId, features] of this.chunkMap.entries()) {
-                if (this.loadedChunks.has(chunkId)) {
-                    const feature = features[index];
-                    if (feature) return feature;
-                }
+            // Calculate which chunk contains this feature
+            const chunkSize = 10000;
+            const chunkId = Math.floor(index / chunkSize);
+            const localIndex = index % chunkSize;
+
+            // Debug: Log first lazy load attempt
+            if (!this._loggedFirstGetFeature) {
+                console.log('📄 First getFeature call: index=' + index + ', chunkId=' + chunkId + ', chunkLoaded=' + this.loadedChunks.has(chunkId));
+                this._loggedFirstGetFeature = true;
+            }
+
+            // Check if chunk is loaded
+            if (this.loadedChunks.has(chunkId)) {
+                const features = this.chunkMap.get(chunkId);
+                return features ? features[localIndex] : null;
             }
             return null;
         }
@@ -306,12 +317,19 @@ export class SpatialIndex {
         if (toLoad.length > 0 && this.chunkLoader) {
             console.log(`Loading ${toLoad.length} chunks...`);
             const chunks = await this.chunkLoader(toLoad);
+            console.log(`📦 Loaded ${chunks.length} chunks from storage, total features:`, chunks.reduce((sum, c) => sum + (c.features?.length || 0), 0));
 
             for (const { id, features } of chunks) {
+                if (!features) {
+                    console.warn(`⚠️ Chunk ${id} has no features!`);
+                    continue;
+                }
                 this.chunkMap.set(id, features);
                 this.loadedChunks.add(id);
                 this.updateChunkCache(id);
             }
+
+            console.log(`✅ Chunks loaded into memory. Total loaded: ${this.loadedChunks.size}`);
 
             // Evict old chunks if cache is full
             this.evictOldChunks();
