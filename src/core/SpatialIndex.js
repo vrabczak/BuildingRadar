@@ -74,7 +74,7 @@ export class SpatialIndex {
     async queryRadius(lon, lat, radius) {
         const features = [];
         const centerKey = this.getCellKey(lon, lat);
-        const [centerX, centerY] = this.parseCellKey(centerKey);
+        const [centerCellX, centerCellY] = this.parseCellKey(centerKey);
 
         // Calculate grid cell range to check
         const cellRange = Math.ceil(radius / (this.cellSize * 111000)); // Approximate degrees
@@ -86,10 +86,8 @@ export class SpatialIndex {
             const neededChunks = new Set();
             for (let dx = -cellRange; dx <= cellRange; dx++) {
                 for (let dy = -cellRange; dy <= cellRange; dy++) {
-                    const checkKey = this.getCellKey(
-                        centerX + dx * this.cellSize,
-                        centerY + dy * this.cellSize
-                    );
+                    // Calculate neighbor cell using cell indices
+                    const checkKey = `${centerCellX + dx},${centerCellY + dy}`;
                     const chunkId = this.chunkMetadata.get(checkKey);
                     if (chunkId !== undefined) {
                         neededChunks.add(chunkId);
@@ -109,10 +107,8 @@ export class SpatialIndex {
         // Query features from loaded data
         for (let dx = -cellRange; dx <= cellRange; dx++) {
             for (let dy = -cellRange; dy <= cellRange; dy++) {
-                const checkKey = this.getCellKey(
-                    centerX + dx * this.cellSize,
-                    centerY + dy * this.cellSize
-                );
+                // Calculate neighbor cell using cell indices
+                const checkKey = `${centerCellX + dx},${centerCellY + dy}`;
 
                 const indices = this.grid.get(checkKey);
                 if (indices) {
