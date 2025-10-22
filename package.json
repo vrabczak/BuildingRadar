@@ -7,15 +7,16 @@
     "dev": "webpack --mode development --watch"
   },
   "dependencies": {
-    "shpjs": "^4.0.4",
-    "buffer": "^6.0.3"
+    "buffer": "^6.0.3",
+    "shpjs": "^4.0.4"
   },
   "devDependencies": {
-    "webpack": "^5.102.1",
-    "webpack-cli": "^6.0.1",
-    "html-webpack-plugin": "^5.6.0",
+    "css-loader": "^7.1.2",
+    "eruda": "^3.4.3",
     "html-inline-script-webpack-plugin": "^3.2.1",
+    "html-webpack-plugin": "^5.6.0",
     "style-loader": "^4.0.0",
-    "css-loader": "^7.1.2"
+    "webpack": "^5.102.1",
+    "webpack-cli": "^6.0.1"
   }
 }

@@ -4,13 +4,87 @@
  * Optimized for debugging crashes on mobile devices
  */
 export class CrashLogger {
-    constructor() {
+    constructor(options = {}) {
         this.logKey = 'buildingRadar_crashLog';
         this.consoleLogKey = 'buildingRadar_consoleLogs';
+        this.debugModeKey = 'buildingRadar_debugMode';
         this.maxConsoleLogs = 500; // Keep last 500 console messages
-        this.setupConsoleInterceptor();
+
+        // Load debug mode from localStorage or use provided option
+        this.debugMode = options.debugMode !== undefined
+            ? options.debugMode
+            : this.getStoredDebugMode();
+
+        this.originalConsole = null;
+        this.consoleInterceptorActive = false;
+
+        // Only setup interceptor if debug mode is enabled
+        if (this.debugMode) {
+            this.setupConsoleInterceptor();
+        }
+
         this.setupGlobalHandlers();
-        this.checkPreviousCrash();
+
+        if (this.debugMode) {
+            this.checkPreviousCrash();
+        }
+    }
+
+    /**
+     * Get stored debug mode preference
+     */
+    getStoredDebugMode() {
+        try {
+            const stored = localStorage.getItem(this.debugModeKey);
+            return stored === 'true';
+        } catch (e) {
+            return false;
+        }
+    }
+
+    /**
+     * Set debug mode preference
+     */
+    setDebugMode(enabled) {
+        this.debugMode = enabled;
+        try {
+            localStorage.setItem(this.debugModeKey, String(enabled));
+        } catch (e) {
+            console.error('Failed to save debug mode preference:', e);
+        }
+
+        if (enabled && !this.consoleInterceptorActive) {
+            this.enableConsoleInterceptor();
+        } else if (!enabled && this.consoleInterceptorActive) {
+            this.disableConsoleInterceptor();
+        }
+
+        return enabled;
+    }
+
+    /**
+     * Enable console interceptor
+     */
+    enableConsoleInterceptor() {
+        if (this.consoleInterceptorActive) return;
+        this.setupConsoleInterceptor();
+    }
+
+    /**
+     * Disable console interceptor and restore original console
+     */
+    disableConsoleInterceptor() {
+        if (!this.consoleInterceptorActive || !this.originalConsole) return;
+
+        // Restore original console methods
+        console.log = this.originalConsole.log;
+        console.warn = this.originalConsole.warn;
+        console.error = this.originalConsole.error;
+        console.info = this.originalConsole.info;
+        console.debug = this.originalConsole.debug;
+
+        this.consoleInterceptorActive = false;
+        console.log('📝 Console interceptor disabled');
     }
 
     /**
@@ -18,7 +92,7 @@ export class CrashLogger {
      */
     setupConsoleInterceptor() {
         // Store original console methods
-        const originalConsole = {
+        this.originalConsole = {
             log: console.log,
             warn: console.warn,
             error: console.error,
@@ -30,7 +104,7 @@ export class CrashLogger {
         ['log', 'warn', 'error', 'info', 'debug'].forEach(method => {
             console[method] = (...args) => {
                 // Call original console method first
-                originalConsole[method].apply(console, args);
+                this.originalConsole[method].apply(console, args);
 
                 // Persist to localStorage
                 try {
@@ -62,11 +136,12 @@ export class CrashLogger {
                 } catch (e) {
                     // If localStorage is full or error occurs, fail silently
                     // Use original console to avoid infinite loop
-                    originalConsole.error('Failed to persist console log:', e);
+                    this.originalConsole.error('Failed to persist console log:', e);
                 }
             };
         });
 
+        this.consoleInterceptorActive = true;
         console.log('📝 Console interceptor active - logs will persist across crashes');
     }
 
@@ -241,10 +316,24 @@ export class CrashLogger {
 
 /**
  * Initialize crash logger and expose globally
+ * @param {Object} options - Configuration options
+ * @param {boolean} options.debugMode - Enable debug mode (console interception)
  * @returns {CrashLogger} The initialized crash logger instance
  */
-export function initializeCrashLogger() {
-    const crashLogger = new CrashLogger();
+export function initializeCrashLogger(options = {}) {
+    const crashLogger = new CrashLogger(options);
     window.crashLogger = crashLogger; // Make available in console
     return crashLogger;
+}
+
+/**
+ * Check if debug mode is currently enabled
+ * @returns {boolean} True if debug mode is enabled
+ */
+export function isDebugMode() {
+    try {
+        return localStorage.getItem('buildingRadar_debugMode') === 'true';
+    } catch (e) {
+        return false;
+    }
 }
