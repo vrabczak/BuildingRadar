@@ -3,6 +3,17 @@
  * Handles all database operations in background thread to prevent UI blocking
  */
 
+// Import storage configuration
+// Note: In a worker context, we need to inline the config or use importScripts
+// For ES modules in workers, import should work if the worker is created as a module
+const StorageConfig = {
+    CHUNK_SIZE: 1000,
+    STREAM_BATCH_SIZE: 10,
+    SUB_BATCH_SIZE: 10,
+    MAX_CACHED_CHUNKS: 10,
+    DEFAULT_CELL_SIZE: 0.01,
+};
+
 let db = null;
 const DB_NAME = 'BuildingRadarDB';
 const DB_VERSION = 2;
@@ -94,7 +105,7 @@ function saveChunkBatch(startIndex, chunks) {
             console.log(`📦 [Worker] Saving ${chunks.length} chunks starting at index ${startIndex}...`);
 
             // Save chunks in smaller sub-batches to avoid transaction timeouts
-            const SUB_BATCH_SIZE = 10;
+            const SUB_BATCH_SIZE = StorageConfig.SUB_BATCH_SIZE;
             for (let i = 0; i < chunks.length; i += SUB_BATCH_SIZE) {
                 const subBatchEnd = Math.min(i + SUB_BATCH_SIZE, chunks.length);
 

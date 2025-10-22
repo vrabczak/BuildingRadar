@@ -1,3 +1,5 @@
+import { StorageConfig } from './SettingsManager.js';
+
 /**
  * StorageManager - Handles IndexedDB operations via Web Worker to prevent UI blocking
  * Stores spatial index structure with chunked features for memory efficiency
@@ -166,7 +168,7 @@ export class StorageManager {
             console.log('✅ Save initialized');
 
             // Step 2: Stream chunks in small batches to avoid memory spike
-            const STREAM_BATCH_SIZE = 10; // Send 10 chunks per postMessage
+            const STREAM_BATCH_SIZE = StorageConfig.STREAM_BATCH_SIZE; // Send N chunks per postMessage
             console.log(`📦 Step 2/3: Streaming ${featureChunks.length} chunks in batches of ${STREAM_BATCH_SIZE}...`);
 
             for (let i = 0; i < featureChunks.length; i += STREAM_BATCH_SIZE) {

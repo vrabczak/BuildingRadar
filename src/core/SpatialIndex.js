@@ -1,9 +1,11 @@
+import { StorageConfig } from './SettingsManager.js';
+
 /**
  * SpatialIndex - Grid-based spatial index for fast proximity queries
  * Supports direct IndexedDB serialization for memory-efficient storage
  */
 export class SpatialIndex {
-    constructor(cellSize = 0.01) { // ~1km at equator
+    constructor(cellSize = StorageConfig.DEFAULT_CELL_SIZE) { // ~1km at equator
         this.cellSize = cellSize;
         this.grid = new Map(); // cellKey -> [featureIndices]
         this.allFeatures = []; // Legacy: all features in memory
@@ -16,7 +18,7 @@ export class SpatialIndex {
         this.chunkMetadata = new Map(); // cellKey -> chunkId
         this.loadedChunks = new Set(); // Set of loaded chunkIds
         this.chunkCache = []; // LRU cache: [{id, lastAccess}]
-        this.maxCachedChunks = 10; // Keep 10 chunks in memory
+        this.maxCachedChunks = StorageConfig.MAX_CACHED_CHUNKS; // Keep N chunks in memory
         this.chunkLoader = null; // Function to load chunk by ID
     }
 
@@ -202,7 +204,7 @@ export class SpatialIndex {
         // Build chunk metadata: map grid cells to chunk IDs
         const chunkMetadata = {};
         let currentChunk = 0;
-        const chunkSize = 10000;
+        const chunkSize = StorageConfig.CHUNK_SIZE;
 
         for (const [key, indices] of this.grid.entries()) {
             // Determine which chunk(s) this cell's features belong to
@@ -229,7 +231,7 @@ export class SpatialIndex {
      * @param {number} chunkSize - Number of features per chunk
      * @returns {Array} Array of feature chunks
      */
-    serializeFeatures(chunkSize = 10000) {
+    serializeFeatures(chunkSize = StorageConfig.CHUNK_SIZE) {
         const chunks = [];
         for (let i = 0; i < this.allFeatures.length; i += chunkSize) {
             chunks.push(this.allFeatures.slice(i, i + chunkSize));
@@ -279,7 +281,7 @@ export class SpatialIndex {
     getFeature(index) {
         if (this.lazyMode) {
             // Calculate which chunk contains this feature
-            const chunkSize = 10000;
+            const chunkSize = StorageConfig.CHUNK_SIZE;
             const chunkId = Math.floor(index / chunkSize);
             const localIndex = index % chunkSize;
 
