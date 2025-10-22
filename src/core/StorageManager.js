@@ -49,12 +49,13 @@ export class StorageManager {
                 });
             }
 
-            function saveSpatialIndex(indexData, featureChunks, metadata = {}) {
+            function initSave(indexData, metadata, totalChunks) {
                 return new Promise(async (resolve, reject) => {
                     if (!db) { reject(new Error('DB not initialized')); return; }
                     
                     try {
-                        // Step 1: Clear old chunks in one transaction
+                        console.log('🗑️ Clearing old chunk data...');
+                        // Step 1: Clear old chunks
                         await new Promise((res, rej) => {
                             const clearTx = db.transaction([STORE_NAME], 'readwrite');
                             const clearStore = clearTx.objectStore(STORE_NAME);
@@ -72,7 +73,9 @@ export class StorageManager {
                             clearTx.oncomplete = () => res();
                             clearTx.onerror = () => rej(clearTx.error);
                         });
+                        console.log('✅ Old data cleared');
                         
+                        console.log('💾 Saving index structure...');
                         // Step 2: Save index structure
                         await new Promise((res, rej) => {
                             const indexTx = db.transaction([STORE_NAME], 'readwrite');
@@ -82,7 +85,7 @@ export class StorageManager {
                                 id: INDEX_KEY,
                                 data: indexData,
                                 metadata: metadata,
-                                chunkCount: featureChunks.length,
+                                chunkCount: totalChunks,
                                 timestamp: Date.now()
                             };
                             indexStore.put(indexRecord);
@@ -90,40 +93,59 @@ export class StorageManager {
                             indexTx.oncomplete = () => res();
                             indexTx.onerror = () => rej(indexTx.error);
                         });
-                        
-                        // Step 3: Save chunks in batches to avoid memory exhaustion
-                        const BATCH_SIZE = 50; // Save 50 chunks per transaction
-                        for (let batchStart = 0; batchStart < featureChunks.length; batchStart += BATCH_SIZE) {
-                            const batchEnd = Math.min(batchStart + BATCH_SIZE, featureChunks.length);
-                            
-                            await new Promise((res, rej) => {
-                                const batchTx = db.transaction([STORE_NAME], 'readwrite');
-                                const batchStore = batchTx.objectStore(STORE_NAME);
-                                
-                                for (let i = batchStart; i < batchEnd; i++) {
-                                    const chunkRecord = {
-                                        id: FEATURES_PREFIX + i,
-                                        data: featureChunks[i],
-                                        chunkIndex: i
-                                    };
-                                    batchStore.put(chunkRecord);
-                                }
-                                
-                                batchTx.oncomplete = () => res();
-                                batchTx.onerror = () => rej(batchTx.error);
-                            });
-                            
-                            // Report progress
-                            postMessage({ 
-                                action: 'progress', 
-                                message: \`Saving chunks \${batchEnd}/\${featureChunks.length}...\` 
-                            });
-                        }
+                        console.log('✅ Index structure saved');
                         
                         resolve();
                     } catch (error) {
+                        console.error('❌ Error in initSave:', error);
                         reject(error);
                     }
+                });
+            }
+
+            function saveChunkBatch(startIndex, chunks) {
+                return new Promise(async (resolve, reject) => {
+                    if (!db) { reject(new Error('DB not initialized')); return; }
+                    
+                    try {
+                        console.log('Saving ' + chunks.length + ' chunks starting at index ' + startIndex + '...');
+                        
+                        // Save chunks in smaller sub-batches to avoid transaction timeouts
+                        const SUB_BATCH_SIZE = 10;
+                        for (let i = 0; i < chunks.length; i += SUB_BATCH_SIZE) {
+                            const subBatchEnd = Math.min(i + SUB_BATCH_SIZE, chunks.length);
+                            
+                            await new Promise((res, rej) => {
+                                const tx = db.transaction([STORE_NAME], 'readwrite');
+                                const store = tx.objectStore(STORE_NAME);
+                                
+                                for (let j = i; j < subBatchEnd; j++) {
+                                    const chunkRecord = {
+                                        id: FEATURES_PREFIX + (startIndex + j),
+                                        data: chunks[j],
+                                        chunkIndex: startIndex + j
+                                    };
+                                    store.put(chunkRecord);
+                                }
+                                
+                                tx.oncomplete = () => res();
+                                tx.onerror = () => rej(tx.error);
+                            });
+                        }
+                        
+                        console.log('Saved chunks ' + startIndex + '-' + (startIndex + chunks.length - 1));
+                        resolve();
+                    } catch (error) {
+                        console.error('Error saving chunk batch:', error);
+                        reject(error);
+                    }
+                });
+            }
+
+            function finalizeSave() {
+                return new Promise((resolve) => {
+                    console.log('🏁 [Worker] Save operation finalized');
+                    resolve();
                 });
             }
 
@@ -262,9 +284,16 @@ export class StorageManager {
                             await initDB();
                             result = { success: true };
                             break;
-                        case 'saveSpatialIndex':
-                            postMessage({ action: 'progress', id, message: 'Saving spatial index...' });
-                            await saveSpatialIndex(payload.indexData, payload.featureChunks, payload.metadata);
+                        case 'initSave':
+                            await initSave(payload.indexData, payload.metadata, payload.totalChunks);
+                            result = { success: true };
+                            break;
+                        case 'saveChunkBatch':
+                            await saveChunkBatch(payload.startIndex, payload.chunks);
+                            result = { success: true };
+                            break;
+                        case 'finalizeSave':
+                            await finalizeSave();
                             result = { success: true };
                             break;
                         case 'loadSpatialIndex':
@@ -400,33 +429,72 @@ export class StorageManager {
                 console.warn('Storage quota exceeded. Try clearing old data or using a smaller dataset.');
                 await this.clearData();
             }
+            try {
+                console.log('Loading spatial index structure from IndexedDB...');
+                const startTime = performance.now();
 
-            return false;
+                const result = await this.sendToWorker('loadSpatialIndex');
+
+                if (result) {
+                    const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+                    console.log(`Loaded spatial index in ${elapsed}s (${result.chunkCount} chunks available, lazy loading enabled)`);
+                }
+
+                return result;
+            } catch (error) {
+                console.error('Failed to load spatial index:', error);
+                return null;
+            }
         }
     }
 
     /**
-     * Save spatial index with chunked features (memory-efficient)
+     * Save spatial index with incremental chunk streaming (memory-efficient)
+     * Streams chunks to worker in small batches to avoid postMessage memory spike
      */
     async saveSpatialIndex(indexData, featureChunks, metadata = {}) {
         try {
             const totalFeatures = featureChunks.reduce((sum, chunk) => sum + chunk.length, 0);
-            console.log(`Saving spatial index: ${featureChunks.length} chunks, ${totalFeatures} features`);
+            console.log(`💾 Starting incremental save: ${featureChunks.length} chunks, ${totalFeatures} features`);
             const startTime = performance.now();
 
-            const payload = {
+            // Step 1: Initialize save (clear old data + save index structure)
+            console.log('📋 Step 1/3: Initializing save (clearing old data + saving index)...');
+            await this.sendToWorker('initSave', {
                 indexData: indexData,
-                featureChunks: featureChunks,
-                metadata: metadata
-            };
+                metadata: metadata,
+                totalChunks: featureChunks.length
+            });
+            console.log('✅ Save initialized');
 
-            await this.sendToWorker('saveSpatialIndex', payload);
+            // Step 2: Stream chunks in small batches to avoid memory spike
+            const STREAM_BATCH_SIZE = 10; // Send 10 chunks per postMessage
+            console.log(`📦 Step 2/3: Streaming ${featureChunks.length} chunks in batches of ${STREAM_BATCH_SIZE}...`);
+
+            for (let i = 0; i < featureChunks.length; i += STREAM_BATCH_SIZE) {
+                const batchEnd = Math.min(i + STREAM_BATCH_SIZE, featureChunks.length);
+                const batch = featureChunks.slice(i, batchEnd);
+
+                console.log(`  📨 Sending chunks ${i}-${batchEnd - 1} (${batch.length} chunks)...`);
+
+                await this.sendToWorker('saveChunkBatch', {
+                    startIndex: i,
+                    chunks: batch
+                });
+
+                console.log(`  ✅ Chunks ${i}-${batchEnd - 1} saved (${batchEnd}/${featureChunks.length})`);
+            }
+
+            // Step 3: Finalize
+            console.log('🏁 Step 3/3: Finalizing save...');
+            await this.sendToWorker('finalizeSave');
 
             const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
-            console.log(`Spatial index saved in ${elapsed}s`);
+            console.log(`✅ Spatial index saved successfully in ${elapsed}s`);
             return true;
         } catch (error) {
-            console.error('Failed to save spatial index:', error);
+            console.error('❌ Failed to save spatial index:', error);
+            console.error('Error stack:', error.stack);
             return false;
         }
     }
