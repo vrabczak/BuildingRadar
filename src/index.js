@@ -9,8 +9,65 @@ import { DataLoader } from './core/DataLoader.js';
 class CrashLogger {
     constructor() {
         this.logKey = 'buildingRadar_crashLog';
+        this.consoleLogKey = 'buildingRadar_consoleLogs';
+        this.maxConsoleLogs = 500; // Keep last 500 console messages
+        this.setupConsoleInterceptor();
         this.setupGlobalHandlers();
         this.checkPreviousCrash();
+    }
+
+    setupConsoleInterceptor() {
+        // Store original console methods
+        const originalConsole = {
+            log: console.log,
+            warn: console.warn,
+            error: console.error,
+            info: console.info,
+            debug: console.debug
+        };
+
+        // Intercept console methods
+        ['log', 'warn', 'error', 'info', 'debug'].forEach(method => {
+            console[method] = (...args) => {
+                // Call original console method first
+                originalConsole[method].apply(console, args);
+
+                // Persist to localStorage
+                try {
+                    const logEntry = {
+                        type: method.toUpperCase(),
+                        message: args.map(arg => {
+                            if (typeof arg === 'object') {
+                                try {
+                                    return JSON.stringify(arg);
+                                } catch (e) {
+                                    return String(arg);
+                                }
+                            }
+                            return String(arg);
+                        }).join(' '),
+                        timestamp: new Date().toISOString(),
+                        memory: this.getMemoryInfo()
+                    };
+
+                    const logs = this.getConsoleLogs();
+                    logs.push(logEntry);
+
+                    // Keep only last N logs (circular buffer)
+                    if (logs.length > this.maxConsoleLogs) {
+                        logs.splice(0, logs.length - this.maxConsoleLogs);
+                    }
+
+                    localStorage.setItem(this.consoleLogKey, JSON.stringify(logs));
+                } catch (e) {
+                    // If localStorage is full or error occurs, fail silently
+                    // Use original console to avoid infinite loop
+                    originalConsole.error('Failed to persist console log:', e);
+                }
+            };
+        });
+
+        console.log('📝 Console interceptor active - logs will persist across crashes');
     }
 
     setupGlobalHandlers() {
@@ -84,6 +141,15 @@ class CrashLogger {
         }
     }
 
+    getConsoleLogs() {
+        try {
+            const logs = localStorage.getItem(this.consoleLogKey);
+            return logs ? JSON.parse(logs) : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
     getMemoryInfo() {
         if (performance.memory) {
             return {
@@ -97,15 +163,46 @@ class CrashLogger {
 
     checkPreviousCrash() {
         const logs = this.getLogs();
+        const consoleLogs = this.getConsoleLogs();
+
         if (logs.length > 0) {
-            console.warn(' Previous crash/event logs found:', logs);
+            console.warn('🔴 Previous crash/event logs found:', logs);
             console.warn('Run crashLogger.clearLogs() to clear or crashLogger.getLogs() to view');
         }
+
+        if (consoleLogs.length > 0) {
+            console.warn(`📝 ${consoleLogs.length} console logs persisted from previous session`);
+            console.warn('Run crashLogger.getConsoleLogs() to view or crashLogger.clearConsoleLogs() to clear');
+            console.warn('Or use crashLogger.exportLogs() to see everything');
+        }
+    }
+
+    clearConsoleLogs() {
+        localStorage.removeItem(this.consoleLogKey);
+        console.log('Console logs cleared');
     }
 
     clearLogs() {
         localStorage.removeItem(this.logKey);
         console.log('Crash logs cleared');
+    }
+
+    clearAllLogs() {
+        this.clearLogs();
+        this.clearConsoleLogs();
+        console.log('All logs cleared');
+    }
+
+    exportLogs() {
+        const crashLogs = this.getLogs();
+        const consoleLogs = this.getConsoleLogs();
+        const data = {
+            crashLogs,
+            consoleLogs,
+            exportedAt: new Date().toISOString()
+        };
+        console.log('📊 Exported logs:', data);
+        return data;
     }
 }
 
