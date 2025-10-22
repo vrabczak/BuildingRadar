@@ -20,86 +20,37 @@ if (debugModeEnabled && typeof window !== 'undefined') {
 const crashLogger = initializeCrashLogger({ debugMode: debugModeEnabled });
 
 /**
- * Create debug mode toggle button
+ * Setup debug mode toggle in modal
  */
-function createDebugToggle() {
-    const toggle = document.createElement('button');
-    toggle.id = 'debug-toggle';
-    toggle.innerHTML = debugModeEnabled ? '' : '';
-    toggle.title = debugModeEnabled ? 'Debug Mode: ON' : 'Debug Mode: OFF';
-    toggle.style.cssText = `
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        width: 50px;
-        height: 50px;
-        border-radius: 50%;
-        border: 2px solid #333;
-        background: ${debugModeEnabled ? '#4CAF50' : '#f44336'};
-        color: white;
-        font-size: 24px;
-        cursor: pointer;
-        z-index: 9999;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        transition: all 0.3s ease;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        user-select: none;
-        -webkit-tap-highlight-color: transparent;
-    `;
+function setupDebugToggle() {
+    const toggle = document.getElementById('debugModeToggle');
+    if (!toggle) return;
 
-    // Toggle debug mode on click
-    toggle.addEventListener('click', () => {
-        const newMode = !crashLogger.debugMode;
+    // Set initial state
+    toggle.checked = debugModeEnabled;
+
+    // Handle toggle change
+    toggle.addEventListener('change', () => {
+        const newMode = toggle.checked;
         crashLogger.setDebugMode(newMode);
-
-        // Update button appearance
-        toggle.innerHTML = newMode ? '' : '';
-        toggle.title = newMode ? 'Debug Mode: ON' : 'Debug Mode: OFF';
-        toggle.style.background = newMode ? '#4CAF50' : '#f44336';
 
         // Show notification
         const msg = newMode
-            ? ' Debug mode enabled. Eruda will load on next refresh.'
-            : ' Debug mode disabled. Page will reload.';
+            ? 'Debug mode enabled. Eruda will load on next page reload.'
+            : 'Debug mode disabled. Changes will apply on next reload.';
 
         alert(msg);
 
         // Reload page to apply changes
         window.location.reload();
     });
-
-    // Add swipe gesture support (swipe from right edge)
-    let touchStartX = 0;
-    let touchStartY = 0;
-
-    document.addEventListener('touchstart', (e) => {
-        touchStartX = e.touches[0].clientX;
-        touchStartY = e.touches[0].clientY;
-    });
-
-    document.addEventListener('touchend', (e) => {
-        const touchEndX = e.changedTouches[0].clientX;
-        const touchEndY = e.changedTouches[0].clientY;
-
-        const deltaX = touchEndX - touchStartX;
-        const deltaY = touchEndY - touchStartY;
-
-        // Detect swipe from right edge (swipe left from right 100px)
-        if (touchStartX > window.innerWidth - 100 && deltaX < -50 && Math.abs(deltaY) < 50) {
-            toggle.click();
-        }
-    });
-
-    document.body.appendChild(toggle);
 }
 
-// Create toggle after DOM is ready
+// Setup toggle when DOM is ready
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', createDebugToggle);
+    document.addEventListener('DOMContentLoaded', setupDebugToggle);
 } else {
-    createDebugToggle();
+    setupDebugToggle();
 }
 
 /**
