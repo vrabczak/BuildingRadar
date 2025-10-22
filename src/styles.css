@@ -460,6 +460,20 @@ input:not(:checked)~.toggle-label:first-of-type,
     color: #00aaff;
 }
 
+.download-btn {
+    border-color: #00ff00;
+    text-decoration: none;
+}
+
+.download-btn:hover {
+    background: rgba(0, 255, 0, 0.1);
+    box-shadow: 0 4px 12px rgba(0, 255, 0, 0.3);
+}
+
+.download-btn .btn-title {
+    color: #00ff00;
+}
+
 /* Upload View */
 #uploadView {
     animation: fadeIn 0.3s ease-in;
