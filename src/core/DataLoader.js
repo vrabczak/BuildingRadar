@@ -3,6 +3,7 @@ import { FileProcessor } from './FileProcessor.js';
 import { FileModalUI } from './FileModalUI.js';
 import { DeviceUtils } from './DeviceUtils.js';
 import { SpatialIndex } from './SpatialIndex.js';
+import { StorageConfig } from './SettingsManager.js';
 
 /**
  * DataLoader - Orchestrates file loading, storage, and UI for shapefile data
@@ -177,7 +178,7 @@ export class DataLoader {
             }
 
             const indexData = this.spatialIndex.serialize();
-            const featureChunks = this.spatialIndex.serializeFeatures(10000); // 10k features per chunk
+            const featureChunks = this.spatialIndex.serializeFeatures(StorageConfig.CHUNK_SIZE); // Configurable features per chunk
 
             await this.storage.saveSpatialIndex(indexData, featureChunks, this.currentFileMetadata);
 
