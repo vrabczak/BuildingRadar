@@ -26,7 +26,7 @@ export class SettingsManager {
     constructor() {
         this.storageKey = 'buildingRadarSettings';
         this.defaults = {
-            radarRange: 1000, // meters
+            radarRange: 2000, // meters
             refreshInterval: 1000, // milliseconds
             enableHighAccuracy: true,
             gpsTimeout: 10000,

@@ -10,7 +10,7 @@ export class DisplayManager {
 
         this.ctx = this.canvas.getContext('2d');
         this.settings = {
-            radarRange: 1000, // 1km in meters
+            radarRange: 2000, // 2km in meters
             backgroundColor: '#0a0a0a',
             radarColor: '#00ff00',
             buildingColor: '#ff0000',
@@ -135,19 +135,20 @@ export class DisplayManager {
      * Draw range circles with labels
      */
     drawRangeCircles() {
-        this.ctx.strokeStyle = this.settings.gridColor;
-        this.ctx.lineWidth = 1;
-
-        // Draw circles at 250m, 500m, 750m, 1000m
+        // Draw circles at 500m, 1km (thick), 1.5km, 2km (thick)
         const ranges = [
-            { ratio: 0.25, label: '250m' },
-            { ratio: 0.5, label: '500m' },
-            { ratio: 0.75, label: '750m' },
-            { ratio: 1.0, label: '1km' }
+            { ratio: 0.25, label: '500m', thick: false },
+            { ratio: 0.5, label: '1km', thick: true },
+            { ratio: 0.75, label: '1.5km', thick: false },
+            { ratio: 1.0, label: '2km', thick: true }
         ];
 
         ranges.forEach(range => {
             const r = this.radius * range.ratio;
+
+            // Set line style based on thick property
+            this.ctx.strokeStyle = this.settings.gridColor;
+            this.ctx.lineWidth = range.thick ? 2 : 1;
 
             // Draw circle
             this.ctx.beginPath();
