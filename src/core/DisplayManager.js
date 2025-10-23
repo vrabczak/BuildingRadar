@@ -143,19 +143,29 @@ export class DisplayManager {
             { ratio: 1.0, label: '2km', thick: true }
         ];
 
-        ranges.forEach(range => {
+        // Draw thin circles first
+        ranges.filter(r => !r.thick).forEach(range => {
             const r = this.radius * range.ratio;
-
-            // Set line style based on thick property
             this.ctx.strokeStyle = this.settings.gridColor;
-            this.ctx.lineWidth = range.thick ? 2 : 1;
-
-            // Draw circle
+            this.ctx.lineWidth = 1;
             this.ctx.beginPath();
             this.ctx.arc(this.centerX, this.centerY, r, 0, Math.PI * 2);
             this.ctx.stroke();
+        });
 
-            // Draw label at top of circle
+        // Draw thick circles on top
+        ranges.filter(r => r.thick).forEach(range => {
+            const r = this.radius * range.ratio;
+            this.ctx.strokeStyle = this.settings.gridColor;
+            this.ctx.lineWidth = 3;
+            this.ctx.beginPath();
+            this.ctx.arc(this.centerX, this.centerY, r, 0, Math.PI * 2);
+            this.ctx.stroke();
+        });
+
+        // Draw all labels on top
+        ranges.forEach(range => {
+            const r = this.radius * range.ratio;
             this.ctx.fillStyle = '#ffffff';
             this.ctx.font = '12px Arial';
             this.ctx.textAlign = 'center';
