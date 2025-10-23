@@ -24,7 +24,6 @@ export const StorageConfig = {
  */
 export class SettingsManager {
     constructor() {
-        this.storageKey = 'buildingRadarSettings';
         this.defaults = {
             radarRange: 2000, // meters
             refreshInterval: 1000, // milliseconds
@@ -33,36 +32,15 @@ export class SettingsManager {
             gpsMaximumAge: 0
         };
 
-        this.settings = this.loadSettings();
-    }
-
-    /**
-     * Load settings from localStorage
-     */
-    loadSettings() {
+        // Clear any old stored settings
         try {
-            const stored = localStorage.getItem(this.storageKey);
-            if (stored) {
-                const parsed = JSON.parse(stored);
-                return { ...this.defaults, ...parsed };
-            }
+            localStorage.removeItem('buildingRadarSettings');
         } catch (error) {
-            console.error('Failed to load settings:', error);
+            // Ignore errors
         }
-        return { ...this.defaults };
-    }
 
-    /**
-     * Save settings to localStorage
-     */
-    saveSettings() {
-        try {
-            localStorage.setItem(this.storageKey, JSON.stringify(this.settings));
-            return true;
-        } catch (error) {
-            console.error('Failed to save settings:', error);
-            return false;
-        }
+        // Use in-memory settings only
+        this.settings = { ...this.defaults };
     }
 
     /**
@@ -77,7 +55,6 @@ export class SettingsManager {
      */
     set(key, value) {
         this.settings[key] = value;
-        this.saveSettings();
     }
 
     /**
@@ -92,7 +69,6 @@ export class SettingsManager {
      */
     update(newSettings) {
         this.settings = { ...this.settings, ...newSettings };
-        this.saveSettings();
     }
 
     /**
@@ -100,7 +76,6 @@ export class SettingsManager {
      */
     reset() {
         this.settings = { ...this.defaults };
-        this.saveSettings();
     }
 
     /**

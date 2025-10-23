@@ -156,8 +156,17 @@ export class DisplayManager {
         // Draw thick circles on top
         ranges.filter(r => r.thick).forEach(range => {
             const r = this.radius * range.ratio;
-            this.ctx.strokeStyle = this.settings.gridColor;
-            this.ctx.lineWidth = 3;
+
+            // 1km circle: yellow and extra thick
+            if (range.label === '1km') {
+                this.ctx.strokeStyle = '#ffff00';
+                this.ctx.lineWidth = 5;
+            } else {
+                // 2km circle: green and thick
+                this.ctx.strokeStyle = this.settings.gridColor;
+                this.ctx.lineWidth = 3;
+            }
+
             this.ctx.beginPath();
             this.ctx.arc(this.centerX, this.centerY, r, 0, Math.PI * 2);
             this.ctx.stroke();
