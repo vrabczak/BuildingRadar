@@ -16,6 +16,8 @@ export class SpatialIndex {
         this.lazyMode = false;
         this.chunkMap = new Map(); // chunkId -> [features]
         this.chunkMetadata = new Map(); // cellKey -> chunkId
+        this.chunkBoundaries = []; // Array of {start, end, shapefileName} for variable-sized chunks
+        this.featureIndexMap = new Map(); // globalIndex -> {chunkId, localIndex} for O(1) lookup
         this.loadedChunks = new Set(); // Set of loaded chunkIds
         this.chunkCache = []; // LRU cache: [{id, lastAccess}]
         this.maxCachedChunks = StorageConfig.MAX_CACHED_CHUNKS; // Keep N chunks in memory
@@ -110,8 +112,14 @@ export class SpatialIndex {
                     // Calculate neighbor cell using cell indices
                     const checkKey = `${centerCellX + dx},${centerCellY + dy}`;
                     const chunkId = this.chunkMetadata.get(checkKey);
+
                     if (chunkId !== undefined) {
-                        neededChunks.add(chunkId);
+                        // Handle both single chunk ID and array of chunk IDs
+                        if (Array.isArray(chunkId)) {
+                            chunkId.forEach(id => neededChunks.add(id));
+                        } else {
+                            neededChunks.add(chunkId);
+                        }
                     }
                 }
             }
@@ -192,38 +200,70 @@ export class SpatialIndex {
 
     /**
      * Serialize to plain object for IndexedDB storage
-     * Returns chunked data to avoid memory spikes
+     * Chunk boundaries define how features are grouped (by shapefile)
+     * @param {Array} chunkBoundaries - Array of chunk boundaries {start, end, shapefileName}
      */
-    serialize() {
+    serialize(chunkBoundaries) {
+        if (!chunkBoundaries || chunkBoundaries.length === 0) {
+            throw new Error('serialize() requires chunkBoundaries parameter');
+        }
+
         // Convert Map to plain object with array values
         const gridObject = {};
         for (const [key, indices] of this.grid.entries()) {
             gridObject[key] = indices;
         }
 
-        // Build chunk metadata: map grid cells to chunk IDs
-        const chunkMetadata = {};
-        let currentChunk = 0;
-        const chunkSize = StorageConfig.CHUNK_SIZE;
-
-        for (const [key, indices] of this.grid.entries()) {
-            // Determine which chunk(s) this cell's features belong to
-            const chunkIds = new Set();
-            for (const idx of indices) {
-                const chunkId = Math.floor(idx / chunkSize);
-                chunkIds.add(chunkId);
-            }
-            // For simplicity, assign to first chunk (most features will be in one)
-            chunkMetadata[key] = Math.min(...chunkIds);
-        }
+        // Build chunk metadata: map grid cells to chunk IDs based on shapefile boundaries
+        const chunkMetadata = this.buildChunkMetadataFromBoundaries(chunkBoundaries);
 
         return {
             cellSize: this.cellSize,
             grid: gridObject,
             featureCount: this.allFeatures.length,
             chunkMetadata: chunkMetadata,
+            chunkBoundaries: chunkBoundaries, // Save boundaries for variable-sized chunks
             // Features stored separately in chunks
         };
+    }
+
+    /**
+     * Build chunk metadata from explicit chunk boundaries
+     * Maps each grid cell to ALL chunks it spans (as array)
+     * @param {Array} chunkBoundaries - Array of {start, end} objects
+     * @returns {Object} chunkMetadata mapping
+     */
+    buildChunkMetadataFromBoundaries(chunkBoundaries) {
+        const chunkMetadata = {};
+
+        // For each grid cell, find which chunk(s) contain its features
+        for (const [key, indices] of this.grid.entries()) {
+            const chunkIds = new Set();
+
+            for (const idx of indices) {
+                // Find which chunk contains this feature index
+                for (let chunkId = 0; chunkId < chunkBoundaries.length; chunkId++) {
+                    const { start, end } = chunkBoundaries[chunkId];
+                    if (idx >= start && idx < end) {
+                        chunkIds.add(chunkId);
+                        break;
+                    }
+                }
+            }
+
+            // Store all chunk IDs for this cell (as array for multi-chunk cells)
+            const chunkArray = Array.from(chunkIds);
+            if (chunkArray.length === 1) {
+                // Single chunk - store as number
+                chunkMetadata[key] = chunkArray[0];
+            } else if (chunkArray.length > 1) {
+                // Multiple chunks - store as array
+                chunkMetadata[key] = chunkArray;
+            }
+        }
+
+        console.log(`🗺️ Generated chunk metadata for ${Object.keys(chunkMetadata).length} grid cells`);
+        return chunkMetadata;
     }
 
     /**

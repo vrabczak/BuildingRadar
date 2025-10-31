@@ -87,10 +87,22 @@ export class FileModalUI {
                 // Show restore button if data exists
                 this.restoreDataBtn.style.display = 'flex';
 
-                // Update subtitle with file info
-                const sizeMB = (metadata.filesize / 1024 / 1024).toFixed(1);
-                const date = new Date(metadata.uploadDate).toLocaleDateString();
-                this.savedDataInfo.textContent = `${metadata.filename} (${sizeMB}MB) - ${date}`;
+                // Update subtitle with file/folder info
+                let infoText;
+                if (metadata.folderName) {
+                    // Folder metadata
+                    const sizeMB = (metadata.totalSize / 1024 / 1024).toFixed(1);
+                    const date = new Date(metadata.uploadDate).toLocaleDateString();
+                    infoText = `${metadata.folderName} (${metadata.fileCount} files, ${sizeMB}MB) - ${date}`;
+                } else if (metadata.filename) {
+                    // Legacy file metadata
+                    const sizeMB = (metadata.filesize / 1024 / 1024).toFixed(1);
+                    const date = new Date(metadata.uploadDate).toLocaleDateString();
+                    infoText = `${metadata.filename} (${sizeMB}MB) - ${date}`;
+                } else {
+                    infoText = 'Saved data available';
+                }
+                this.savedDataInfo.textContent = infoText;
 
                 // Show warning in upload view
                 if (this.uploadWarning) {

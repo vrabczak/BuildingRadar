@@ -51,21 +51,19 @@
                                         <div id="savedDataInfo" class="btn-subtitle"></div>
                                     </div>
                                 </button>
-                                <a href="https://1drv.ms/u/c/e4440e9fda796b83/EWPCrCYwqD9IoXSDdIzzw4ABJIgUtzIXHdgD9ugM2ZRyMA?e=LhSLSZ" 
-                                   class="choice-btn download-btn" 
-                                   target="_blank" 
-                                   rel="noopener noreferrer">
+                                <a href="https://1drv.ms/u/c/e4440e9fda796b83/EZ4ekOs7OH1Crv16_yv1kuMBvGqfBzArfkiltr-kHaIBfQ?e=jGSwaW"
+                                    class="choice-btn download-btn" target="_blank" rel="noopener noreferrer">
                                     <span class="btn-icon">⬇️</span>
                                     <div class="btn-content">
                                         <div class="btn-title">Download Buildings Data</div>
-                                        <div class="btn-subtitle">Get buildings.zip file from OneDrive</div>
+                                        <div class="btn-subtitle">Download .zip file from OneDrive and extract it.</div>
                                     </div>
                                 </a>
                                 <button id="uploadNewBtn" class="choice-btn upload-btn">
                                     <span class="btn-icon">📁</span>
                                     <div class="btn-content">
-                                        <div class="btn-title">Upload New File</div>
-                                        <div class="btn-subtitle">Select a shapefile (.shp or .zip)</div>
+                                        <div class="btn-title">Upload Folder</div>
+                                        <div class="btn-subtitle">Select the extracted folder.</div>
                                     </div>
                                 </button>
                             </div>
@@ -74,11 +72,12 @@
 
                     <!-- File Upload View (hidden initially) -->
                     <div id="uploadView" style="display: none;">
-                        <p id="uploadDescription">Select a shapefile (.shp or .zip) from your local drive</p>
+                        <p id="uploadDescription">Select a folder containing shapefiles (.shp files with associated
+                            .dbf, .shx files)</p>
                         <div id="uploadWarning" class="upload-warning" style="display: none;">
                             ⚠️ This will replace your existing saved data
                         </div>
-                        <input type="file" id="shapefileInput" accept=".shp,.zip" />
+                        <input type="file" id="shapefileInput" webkitdirectory directory multiple />
                         <button id="backToChoiceBtn" class="back-btn">← Back</button>
                     </div>
 

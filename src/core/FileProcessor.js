@@ -85,6 +85,181 @@ export class FileProcessor {
     }
 
     /**
+     * Process multiple shapefiles from a folder
+     * Groups related files (.shp, .dbf, .shx) and processes them incrementally
+     * Returns features organized by shapefile for optimal chunking
+     * @param {FileList} files - List of files from folder upload
+     * @returns {Promise<Object>} Object with featuresByShapefile array and combined GeoJSON
+     */
+    async loadShapefilesFromFolder(files) {
+        // Group files by shapefile name
+        const shapefileGroups = this.groupShapefilesByName(files);
+        console.log(`Found ${shapefileGroups.length} shapefiles in folder`);
+
+        if (shapefileGroups.length === 0) {
+            throw new Error('No valid shapefiles found in the selected folder');
+        }
+
+        // Store features grouped by shapefile (for spatial chunking)
+        const featuresByShapefile = [];
+
+        // Combined GeoJSON structure (for backward compatibility)
+        const combinedGeoJSON = {
+            type: 'FeatureCollection',
+            features: []
+        };
+
+        // Process each shapefile group incrementally to avoid memory spikes
+        for (let i = 0; i < shapefileGroups.length; i++) {
+            const group = shapefileGroups[i];
+            this.updateProgress(`Processing shapefile ${i + 1}/${shapefileGroups.length}: ${group.name}`, 'loading');
+            console.log(`📂 Processing shapefile ${i + 1}/${shapefileGroups.length}: ${group.name}`);
+
+            try {
+                // Parse this shapefile
+                const geojson = await this.parseShapefileGroup(group);
+
+                if (geojson && geojson.features && geojson.features.length > 0) {
+                    // Tag each feature with its source shapefile (for debugging/tracking)
+                    const taggedFeatures = geojson.features.map(feature => ({
+                        ...feature,
+                        properties: {
+                            ...feature.properties,
+                            _sourceShapefile: group.name
+                        }
+                    }));
+
+                    // Store features grouped by shapefile
+                    featuresByShapefile.push({
+                        shapefileName: group.name,
+                        features: taggedFeatures,
+                        chunkIndex: i // Will be used as chunk ID
+                    });
+
+                    // Add to combined collection
+                    combinedGeoJSON.features.push(...taggedFeatures);
+                    console.log(`  ✓ Added ${taggedFeatures.length} features (total: ${combinedGeoJSON.features.length})`);
+                }
+
+                // Give browser time to process between files (especially on mobile)
+                if (DeviceUtils.isMobileDevice()) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+            } catch (error) {
+                console.warn(`  ⚠️ Skipping ${group.name}: ${error.message}`);
+                // Continue with next file instead of failing completely
+            }
+        }
+
+        if (combinedGeoJSON.features.length === 0) {
+            throw new Error('No features could be loaded from any shapefile');
+        }
+
+        console.log(`✅ Successfully loaded ${combinedGeoJSON.features.length} features from ${shapefileGroups.length} shapefiles`);
+
+        return {
+            featuresByShapefile: featuresByShapefile,
+            combinedGeoJSON: combinedGeoJSON
+        };
+    }
+
+    /**
+     * Group files by shapefile base name
+     * Each shapefile needs .shp, and optionally .dbf, .shx, .prj files
+     */
+    groupShapefilesByName(files) {
+        const groups = new Map();
+
+        // First pass: find all .shp files
+        for (const file of files) {
+            const fileName = file.name.toLowerCase();
+            if (fileName.endsWith('.shp')) {
+                const baseName = fileName.slice(0, -4);
+                const fullPath = file.webkitRelativePath || file.name;
+                const pathParts = fullPath.split('/');
+                const baseNameWithPath = pathParts.slice(0, -1).join('/') + '/' + baseName;
+
+                if (!groups.has(baseNameWithPath)) {
+                    groups.set(baseNameWithPath, {
+                        name: baseName,
+                        fullPath: baseNameWithPath,
+                        files: {}
+                    });
+                }
+                groups.get(baseNameWithPath).files.shp = file;
+            }
+        }
+
+        // Second pass: add associated files (.dbf, .shx, .prj)
+        for (const file of files) {
+            const fileName = file.name.toLowerCase();
+            const fullPath = file.webkitRelativePath || file.name;
+            const pathParts = fullPath.split('/');
+
+            for (const ext of ['.dbf', '.shx', '.prj']) {
+                if (fileName.endsWith(ext)) {
+                    const baseName = fileName.slice(0, -4);
+                    const baseNameWithPath = pathParts.slice(0, -1).join('/') + '/' + baseName;
+
+                    if (groups.has(baseNameWithPath)) {
+                        const extName = ext.slice(1); // Remove the dot
+                        groups.get(baseNameWithPath).files[extName] = file;
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Convert to array and filter complete groups (must have .shp)
+        const result = Array.from(groups.values()).filter(group => group.files.shp);
+
+        // Log what we found
+        result.forEach(group => {
+            const fileTypes = Object.keys(group.files).join(', ');
+            console.log(`  Found: ${group.name} (${fileTypes})`);
+        });
+
+        return result;
+    }
+
+    /**
+     * Parse a grouped shapefile (with .shp, .dbf, .shx files)
+     */
+    async parseShapefileGroup(group) {
+        // Read all file buffers
+        const buffers = {};
+
+        for (const [ext, file] of Object.entries(group.files)) {
+            buffers[ext] = await this.readFileAsArrayBuffer(file);
+        }
+
+        // shpjs expects either a single buffer or an object with named buffers
+        const shpModule = await import('shpjs');
+
+        if (buffers.dbf && buffers.shx) {
+            // If we have all components, combine them
+            const geojson = await shpModule.default(buffers.shp, buffers.dbf);
+            return geojson;
+        } else {
+            // Just the .shp file
+            const geojson = await shpModule.default(buffers.shp);
+            return geojson;
+        }
+    }
+
+    /**
+     * Read a file as ArrayBuffer
+     */
+    readFileAsArrayBuffer(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = (error) => reject(error);
+            reader.readAsArrayBuffer(file);
+        });
+    }
+
+    /**
      * Convert data to GeoJSON (shapefile already contains point geometries)
      */
     convertToGeoJSON(data) {
