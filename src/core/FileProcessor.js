@@ -259,9 +259,28 @@ export class FileProcessor {
             parsePromises.push(shp.default.parseDbf(buffers.dbf));
         }
 
-        // Parse both files in parallel and combine them
+        // Parse both files in parallel
         const results = await Promise.all(parsePromises);
-        const geojson = shp.default.combine(results);
+
+        // Manually combine to avoid stack overflow on large files
+        // results[0] = geometries from .shp, results[1] = properties from .dbf
+        const geometries = results[0];
+        const properties = results.length > 1 ? results[1] : null;
+
+        // Create GeoJSON by merging geometry and properties
+        const features = [];
+        for (let i = 0; i < geometries.length; i++) {
+            features.push({
+                type: 'Feature',
+                geometry: geometries[i],
+                properties: properties && properties[i] ? properties[i] : {}
+            });
+        }
+
+        const geojson = {
+            type: 'FeatureCollection',
+            features: features
+        };
 
         return geojson;
     }

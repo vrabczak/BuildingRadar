@@ -114,19 +114,27 @@ export class SpatialIndex {
 
             console.log(`🔍 Current position: [${lat.toFixed(6)}, ${lon.toFixed(6)}] → tile ${currentTile}`);
 
-            // Load current tile + 8 neighbors (3x3 grid)
+            // DEBUG: Load ONLY current tile (neighbors disabled for debugging)
             const tilesToLoad = [];
-            for (let dLat = -1; dLat <= 1; dLat++) {
-                for (let dLon = -1; dLon <= 1; dLon++) {
-                    const checkTile = `${tileLat + dLat},${tileLon + dLon}`;
-                    const chunkId = this.chunkMetadata.get(checkTile);
+            const checkTile = currentTile; // Only current tile
+            const chunkId = this.chunkMetadata.get(checkTile);
 
-                    if (chunkId !== undefined) {
-                        neededChunks.add(chunkId);
-                        tilesToLoad.push(checkTile);
-                    }
-                }
+            if (chunkId !== undefined) {
+                neededChunks.add(chunkId);
+                tilesToLoad.push(checkTile);
             }
+
+            // DISABLED FOR DEBUGGING: Load current tile + 8 neighbors (3x3 grid)
+            // for (let dLat = -1; dLat <= 1; dLat++) {
+            //     for (let dLon = -1; dLon <= 1; dLon++) {
+            //         const checkTile = `${tileLat + dLat},${tileLon + dLon}`;
+            //         const chunkId = this.chunkMetadata.get(checkTile);
+            //         if (chunkId !== undefined) {
+            //             neededChunks.add(chunkId);
+            //             tilesToLoad.push(checkTile);
+            //         }
+            //     }
+            // }
 
             console.log(`📍 Tiles to load: [${tilesToLoad.join(', ')}]`);
             console.log(`📦 Need ${neededChunks.size} chunks for this query: [${Array.from(neededChunks).join(', ')}]`);
