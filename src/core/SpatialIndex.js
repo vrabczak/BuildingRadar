@@ -104,33 +104,35 @@ export class SpatialIndex {
 
         console.log(`🔍 Query at [${lat.toFixed(6)}, ${lon.toFixed(6)}], radius=${radius}m, cellRange=${cellRange}`);
 
-        // Collect needed chunks in lazy mode
+        // Collect needed chunks in lazy mode (based on degree tiles)
         if (this.lazyMode) {
             const neededChunks = new Set();
-            for (let dx = -cellRange; dx <= cellRange; dx++) {
-                for (let dy = -cellRange; dy <= cellRange; dy++) {
-                    // Calculate neighbor cell using cell indices
-                    const checkKey = `${centerCellX + dx},${centerCellY + dy}`;
-                    const chunkId = this.chunkMetadata.get(checkKey);
+
+            // Get current degree tile
+            const currentTile = this.getDegreeTile(lon, lat);
+            const [tileLat, tileLon] = currentTile.split(',').map(Number);
+
+            console.log(`🔍 Current position: [${lat.toFixed(6)}, ${lon.toFixed(6)}] → tile ${currentTile}`);
+
+            // Load current tile + 8 neighbors (3x3 grid)
+            const tilesToLoad = [];
+            for (let dLat = -1; dLat <= 1; dLat++) {
+                for (let dLon = -1; dLon <= 1; dLon++) {
+                    const checkTile = `${tileLat + dLat},${tileLon + dLon}`;
+                    const chunkId = this.chunkMetadata.get(checkTile);
 
                     if (chunkId !== undefined) {
-                        // Handle both single chunk ID and array of chunk IDs
-                        if (Array.isArray(chunkId)) {
-                            chunkId.forEach(id => neededChunks.add(id));
-                        } else {
-                            neededChunks.add(chunkId);
-                        }
+                        neededChunks.add(chunkId);
+                        tilesToLoad.push(checkTile);
                     }
                 }
             }
 
-            console.log(`📦 Need ${neededChunks.size} chunks for this query`);
+            console.log(`📍 Tiles to load: [${tilesToLoad.join(', ')}]`);
+            console.log(`📦 Need ${neededChunks.size} chunks for this query: [${Array.from(neededChunks).join(', ')}]`);
 
             // Load needed chunks
             await this.ensureChunksLoaded(Array.from(neededChunks));
-
-            // Prefetch neighboring chunks for smooth movement
-            this.prefetchNeighboringChunks(centerKey, cellRange);
         }
 
         // Query features from loaded data
@@ -235,41 +237,54 @@ export class SpatialIndex {
 
     /**
      * Build chunk metadata from explicit chunk boundaries
-     * Maps each grid cell to ALL chunks it spans (as array)
-     * @param {Array} chunkBoundaries - Array of {start, end} objects
-     * @returns {Object} chunkMetadata mapping
+     * Uses degree tiles from shapefile names (e.g., n48e022 -> "48,22")
+     * @param {Array} chunkBoundaries - Array of {start, end, shapefileName} objects
+     * @returns {Object} chunkMetadata mapping degreeTile -> chunkId
      */
     buildChunkMetadataFromBoundaries(chunkBoundaries) {
         const chunkMetadata = {};
 
-        // For each grid cell, find which chunk(s) contain its features
-        for (const [key, indices] of this.grid.entries()) {
-            const chunkIds = new Set();
+        // Extract degree tile from each shapefile name
+        for (let chunkId = 0; chunkId < chunkBoundaries.length; chunkId++) {
+            const { shapefileName } = chunkBoundaries[chunkId];
+            const tileKey = this.extractDegreeTileFromName(shapefileName);
 
-            for (const idx of indices) {
-                // Find which chunk contains this feature index
-                for (let chunkId = 0; chunkId < chunkBoundaries.length; chunkId++) {
-                    const { start, end } = chunkBoundaries[chunkId];
-                    if (idx >= start && idx < end) {
-                        chunkIds.add(chunkId);
-                        break;
-                    }
-                }
-            }
-
-            // Store all chunk IDs for this cell (as array for multi-chunk cells)
-            const chunkArray = Array.from(chunkIds);
-            if (chunkArray.length === 1) {
-                // Single chunk - store as number
-                chunkMetadata[key] = chunkArray[0];
-            } else if (chunkArray.length > 1) {
-                // Multiple chunks - store as array
-                chunkMetadata[key] = chunkArray;
+            if (tileKey) {
+                chunkMetadata[tileKey] = chunkId;
+                console.log(`  📍 Chunk ${chunkId}: ${shapefileName} → tile ${tileKey}`);
+            } else {
+                console.warn(`⚠️ Could not extract tile from shapefile name: ${shapefileName}`);
             }
         }
 
-        console.log(`🗺️ Generated chunk metadata for ${Object.keys(chunkMetadata).length} grid cells`);
+        console.log(`🗺️ Generated chunk metadata for ${Object.keys(chunkMetadata).length} degree tiles`);
         return chunkMetadata;
+    }
+
+    /**
+     * Extract degree tile key from shapefile name (e.g., "n48e022" -> "48,22")
+     * @param {string} shapefileName - Shapefile name
+     * @returns {string|null} Tile key or null if parsing fails
+     */
+    extractDegreeTileFromName(shapefileName) {
+        // Match patterns like: n48e022, s12w034, N48E022, etc.
+        const match = shapefileName.match(/([ns])(\d+)([ew])(\d+)/i);
+        if (!match) return null;
+
+        const [, latDir, latDeg, lonDir, lonDeg] = match;
+        const lat = parseInt(latDeg) * (latDir.toLowerCase() === 's' ? -1 : 1);
+        const lon = parseInt(lonDeg) * (lonDir.toLowerCase() === 'w' ? -1 : 1);
+
+        return `${lat},${lon}`;
+    }
+
+    /**
+     * Get degree tile key for coordinates (integer degrees)
+     */
+    getDegreeTile(lon, lat) {
+        const tileLat = Math.floor(lat);
+        const tileLon = Math.floor(lon);
+        return `${tileLat},${tileLon}`;
     }
 
     /**
