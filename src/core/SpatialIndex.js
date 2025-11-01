@@ -144,12 +144,22 @@ export class SpatialIndex {
         }
 
         // Query features from loaded data
+        let cellsChecked = 0;
+        let cellsWithData = 0;
         for (let dx = -cellRange; dx <= cellRange; dx++) {
             for (let dy = -cellRange; dy <= cellRange; dy++) {
                 // Calculate neighbor cell using cell indices
                 const checkKey = `${centerCellX + dx},${centerCellY + dy}`;
 
                 const indices = this.grid.get(checkKey);
+                cellsChecked++;
+
+                // Debug: Log first few cells
+                if (cellsChecked <= 5) {
+                    console.log(`  🔍 Cell ${checkKey}: ${indices ? indices.length + ' indices' : 'no data'}`);
+                }
+
+                if (indices) cellsWithData++;
                 if (indices) {
                     for (const idx of indices) {
                         const feature = this.getFeature(idx);
@@ -169,7 +179,8 @@ export class SpatialIndex {
             }
         }
 
-        console.log('✅ Found ' + features.length + ' buildings within ' + radius + 'm');
+        console.log(`🔎 Checked ${cellsChecked} cells, ${cellsWithData} had data`);
+        console.log(`✅ Found ${features.length} buildings within ${radius}m`);
 
         return features;
     }
@@ -259,9 +270,9 @@ export class SpatialIndex {
 
             if (tileKey) {
                 chunkMetadata[tileKey] = chunkId;
-                console.log(`  📍 Chunk ${chunkId}: ${shapefileName} → tile ${tileKey}`);
+                console.log(`  📍 Chunk ${chunkId}: ${shapefileName} → tile ${tileKey} `);
             } else {
-                console.warn(`⚠️ Could not extract tile from shapefile name: ${shapefileName}`);
+                console.warn(`⚠️ Could not extract tile from shapefile name: ${shapefileName} `);
             }
         }
 
@@ -283,7 +294,7 @@ export class SpatialIndex {
         const lat = parseInt(latDeg) * (latDir.toLowerCase() === 's' ? -1 : 1);
         const lon = parseInt(lonDeg) * (lonDir.toLowerCase() === 'w' ? -1 : 1);
 
-        return `${lat},${lon}`;
+        return `${lat},${lon} `;
     }
 
     /**
@@ -292,7 +303,7 @@ export class SpatialIndex {
     getDegreeTile(lon, lat) {
         const tileLat = Math.floor(lat);
         const tileLon = Math.floor(lon);
-        return `${tileLat},${tileLon}`;
+        return `${tileLat},${tileLon} `;
     }
 
     /**
@@ -373,10 +384,10 @@ export class SpatialIndex {
             // Debug: Log first few getFeature attempts
             if (!this._getFeatureCallCount) this._getFeatureCallCount = 0;
             if (this._getFeatureCallCount < 5) {
-                console.log(`📄 getFeature(${index}): chunkId=${chunkId}, localIndex=${localIndex}, loaded=${this.loadedChunks.has(chunkId)}`);
+                console.log(`📄 getFeature(${index}): chunkId = ${chunkId}, localIndex = ${localIndex}, loaded = ${this.loadedChunks.has(chunkId)} `);
                 if (chunkId >= 0 && this.loadedChunks.has(chunkId)) {
                     const features = this.chunkMap.get(chunkId);
-                    console.log(`  → Chunk ${chunkId} has ${features?.length || 0} features, getting index ${localIndex}`);
+                    console.log(`  → Chunk ${chunkId} has ${features?.length || 0} features, getting index ${localIndex} `);
                 }
                 this._getFeatureCallCount++;
             }
@@ -422,7 +433,7 @@ export class SpatialIndex {
                 this.updateChunkCache(id);
             }
 
-            console.log(`✅ Chunks in memory: ${this.loadedChunks.size}, chunkMap size: ${this.chunkMap.size}`);
+            console.log(`✅ Chunks in memory: ${this.loadedChunks.size}, chunkMap size: ${this.chunkMap.size} `);
 
             // Evict old chunks if cache is full
             this.evictOldChunks();
