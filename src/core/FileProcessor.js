@@ -230,7 +230,7 @@ export class FileProcessor {
         const buffers = {};
 
         for (const [ext, file] of Object.entries(group.files)) {
-            // shpjs only expects: shp, dbf, prj, cpg (NOT shx)
+            // shpjs only expects: shp, dbf, prj (NOT shx)
             // The .shx file is used internally by the .shp format
             if (ext !== 'shx') {
                 buffers[ext] = await this.readFileAsArrayBuffer(file);
@@ -239,15 +239,30 @@ export class FileProcessor {
 
         // Debug: log what we're passing to shpjs
         console.log(`  Buffers to parse: ${Object.keys(buffers).join(', ')}`);
-        Object.entries(buffers).forEach(([key, buffer]) => {
-            console.log(`    ${key}: ${buffer.byteLength} bytes, type: ${buffer.constructor.name}`);
-        });
 
-        // shpjs expects an object with named buffers: { shp, dbf, prj, cpg }
-        const shpModule = await import('shpjs');
+        // Load shpjs module
+        const shp = await import('shpjs');
 
-        // Pass the buffers object (without shx)
-        const geojson = await shpModule.default(buffers);
+        // Use shpjs's low-level API for separate files:
+        // parseShp(shpBuffer, prjString), parseDbf(dbfBuffer), then combine
+        const parsePromises = [];
+
+        // Parse .shp file (with optional .prj for projection)
+        if (buffers.shp) {
+            // If we have a .prj file, convert it to string for parseShp
+            const prjString = buffers.prj ? new TextDecoder().decode(buffers.prj) : undefined;
+            parsePromises.push(shp.default.parseShp(buffers.shp, prjString));
+        }
+
+        // Parse .dbf file (attribute data)
+        if (buffers.dbf) {
+            parsePromises.push(shp.default.parseDbf(buffers.dbf));
+        }
+
+        // Parse both files in parallel and combine them
+        const results = await Promise.all(parsePromises);
+        const geojson = shp.default.combine(results);
+
         return geojson;
     }
 
