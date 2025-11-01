@@ -230,13 +230,17 @@ export class FileProcessor {
         const buffers = {};
 
         for (const [ext, file] of Object.entries(group.files)) {
-            buffers[ext] = await this.readFileAsArrayBuffer(file);
+            // shpjs only expects: shp, dbf, prj, cpg (NOT shx)
+            // The .shx file is used internally by the .shp format
+            if (ext !== 'shx') {
+                buffers[ext] = await this.readFileAsArrayBuffer(file);
+            }
         }
 
-        // shpjs expects an object with named buffers: { shp, dbf, shx, prj }
+        // shpjs expects an object with named buffers: { shp, dbf, prj, cpg }
         const shpModule = await import('shpjs');
-        
-        // Pass the entire buffers object - shpjs will use what it needs
+
+        // Pass the buffers object (without shx)
         const geojson = await shpModule.default(buffers);
         return geojson;
     }
