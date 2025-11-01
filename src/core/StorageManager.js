@@ -151,8 +151,9 @@ export class StorageManager {
     /**
      * Save spatial index with incremental chunk streaming (memory-efficient)
      * Streams chunks to worker in small batches to avoid postMessage memory spike
+     * @param {Function} progressCallback - Optional callback for progress updates
      */
-    async saveSpatialIndex(indexData, featureChunks, metadata = {}) {
+    async saveSpatialIndex(indexData, featureChunks, metadata = {}, progressCallback = null) {
         try {
             const totalFeatures = featureChunks.reduce((sum, chunk) => sum + chunk.length, 0);
             console.log(`💾 Starting incremental save: ${featureChunks.length} chunks, ${totalFeatures} features`);
@@ -160,6 +161,9 @@ export class StorageManager {
 
             // Step 1: Initialize save (clear old data + save index structure)
             console.log('📋 Step 1/3: Initializing save (clearing old data + saving index)...');
+            if (progressCallback) {
+                progressCallback({ phase: 'init', total: featureChunks.length });
+            }
             await this.sendToWorker('initSave', {
                 indexData: indexData,
                 metadata: metadata,
@@ -167,26 +171,46 @@ export class StorageManager {
             });
             console.log('✅ Save initialized');
 
-            // Step 2: Stream chunks in small batches to avoid memory spike
-            const STREAM_BATCH_SIZE = StorageConfig.STREAM_BATCH_SIZE; // Send N chunks per postMessage
-            console.log(`📦 Step 2/3: Streaming ${featureChunks.length} chunks in batches of ${STREAM_BATCH_SIZE}...`);
+            // Step 2: Save chunks one by one with detailed logging
+            console.log(`📦 Step 2/3: Saving ${featureChunks.length} chunks one by one...`);
 
-            for (let i = 0; i < featureChunks.length; i += STREAM_BATCH_SIZE) {
-                const batchEnd = Math.min(i + STREAM_BATCH_SIZE, featureChunks.length);
-                const batch = featureChunks.slice(i, batchEnd);
+            for (let i = 0; i < featureChunks.length; i++) {
+                const chunk = featureChunks[i];
+                const chunkBoundary = indexData.chunkBoundaries ? indexData.chunkBoundaries[i] : null;
 
-                console.log(`  📨 Sending chunks ${i}-${batchEnd - 1} (${batch.length} chunks)...`);
+                // Log chunk metadata
+                const chunkInfo = {
+                    id: i,
+                    featureCount: chunk.length,
+                    shapefileName: chunkBoundary?.shapefileName || 'unknown',
+                    indexRange: chunkBoundary ? `[${chunkBoundary.start}-${chunkBoundary.end})` : 'unknown'
+                };
+
+                console.log(`  📦 Saving chunk ${i}/${featureChunks.length}: ${chunkInfo.shapefileName}, ${chunkInfo.featureCount} features, range ${chunkInfo.indexRange}`);
+
+                // Update progress
+                if (progressCallback) {
+                    progressCallback({
+                        phase: 'saving',
+                        current: i + 1,
+                        total: featureChunks.length,
+                        chunkName: chunkInfo.shapefileName
+                    });
+                }
 
                 await this.sendToWorker('saveChunkBatch', {
                     startIndex: i,
-                    chunks: batch
+                    chunks: [chunk]
                 });
 
-                console.log(`  ✅ Chunks ${i}-${batchEnd - 1} saved (${batchEnd}/${featureChunks.length})`);
+                console.log(`  ✅ Chunk ${i} saved (${i + 1}/${featureChunks.length})`);
             }
 
             // Step 3: Finalize
             console.log('🏁 Step 3/3: Finalizing save...');
+            if (progressCallback) {
+                progressCallback({ phase: 'finalizing' });
+            }
             await this.sendToWorker('finalizeSave');
 
             const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);

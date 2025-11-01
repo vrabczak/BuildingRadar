@@ -204,7 +204,7 @@ export class DataLoader {
             console.log(`Indexed ${featureCount} features from ${result.featuresByShapefile.length} shapefiles, memory:`, DeviceUtils.checkMemory());
 
             // Save spatial index to IndexedDB (chunked by shapefile for optimal spatial locality)
-            this.ui.showStatus('Saving to storage...', 'loading');
+            this.ui.showStatus('Preparing to save...', 'loading');
             if (window.crashLogger) {
                 window.crashLogger.logEvent('SAVING_SPATIAL_INDEX', {
                     featureCount,
@@ -231,7 +231,18 @@ export class DataLoader {
             const featureChunks = result.featuresByShapefile.map(sf => sf.features);
             console.log(`📦 Created ${featureChunks.length} chunks (one per shapefile)`);
 
-            await this.storage.saveSpatialIndex(indexData, featureChunks, this.currentFileMetadata);
+            // Save with progress callback
+            await this.storage.saveSpatialIndex(indexData, featureChunks, this.currentFileMetadata, (progress) => {
+                // Update UI with progress
+                if (progress.phase === 'init') {
+                    this.ui.showStatus('Initializing storage...', 'loading');
+                } else if (progress.phase === 'saving') {
+                    const percent = Math.round((progress.current / progress.total) * 100);
+                    this.ui.showStatus(`Saving chunk ${progress.current}/${progress.total} (${percent}%)...`, 'loading');
+                } else if (progress.phase === 'finalizing') {
+                    this.ui.showStatus('Finalizing save...', 'loading');
+                }
+            });
 
             // Enable lazy loading with chunk loader (needed for queries to work)
             this.spatialIndex.enableLazyLoading(async (chunkIds) => {
@@ -324,7 +335,7 @@ export class DataLoader {
             console.log(`Indexed ${featureCount} features, memory:`, DeviceUtils.checkMemory());
 
             // Save spatial index to IndexedDB (single file = one chunk)
-            this.ui.showStatus('Saving to storage...', 'loading');
+            this.ui.showStatus('Preparing to save...', 'loading');
             if (window.crashLogger) {
                 window.crashLogger.logEvent('SAVING_SPATIAL_INDEX', { featureCount });
             }
@@ -343,7 +354,17 @@ export class DataLoader {
             const featureChunks = [this.spatialIndex.allFeatures];
             console.log(`📦 Created 1 chunk (entire file)`);
 
-            await this.storage.saveSpatialIndex(indexData, featureChunks, this.currentFileMetadata);
+            // Save with progress callback
+            await this.storage.saveSpatialIndex(indexData, featureChunks, this.currentFileMetadata, (progress) => {
+                // Update UI with progress
+                if (progress.phase === 'init') {
+                    this.ui.showStatus('Initializing storage...', 'loading');
+                } else if (progress.phase === 'saving') {
+                    this.ui.showStatus('Saving data...', 'loading');
+                } else if (progress.phase === 'finalizing') {
+                    this.ui.showStatus('Finalizing save...', 'loading');
+                }
+            });
 
             // Enable lazy loading with chunk loader (needed for queries to work)
             this.spatialIndex.enableLazyLoading(async (chunkIds) => {

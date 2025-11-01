@@ -217,6 +217,12 @@ export class SpatialIndex {
         // Build chunk metadata: map grid cells to chunk IDs based on shapefile boundaries
         const chunkMetadata = this.buildChunkMetadataFromBoundaries(chunkBoundaries);
 
+        // Store chunk boundaries on the instance for immediate use
+        this.chunkBoundaries = chunkBoundaries;
+
+        // Set chunk metadata on the instance so it can be used immediately
+        this.setChunkMetadata(chunkMetadata);
+
         return {
             cellSize: this.cellSize,
             grid: gridObject,

@@ -26,10 +26,16 @@ export class BuildingRadar {
 
         this.updateInterval = null;
         this.isRunning = false;
+        this.isPaused = false;
         this.visibleBuildings = [];
 
         this.setupEventListeners();
         this.initialize();
+
+        // Expose pause/resume methods globally for console debugging
+        window.pauseRadar = () => this.pause();
+        window.resumeRadar = () => this.resume();
+        window.toggleRadarPause = () => this.togglePause();
     }
 
     /**
@@ -234,6 +240,46 @@ export class BuildingRadar {
             clearInterval(this.updateInterval);
             this.updateInterval = null;
             console.log('Update loop stopped');
+        }
+    }
+
+    /**
+     * Pause radar updates (for debugging)
+     */
+    pause() {
+        if (this.isPaused) {
+            console.log('⏸️ Radar is already paused');
+            return;
+        }
+        this.isPaused = true;
+        this.stopUpdateLoop();
+        console.log('⏸️ Radar updates PAUSED - GPS still running but display frozen');
+        console.log('💡 Call resumeRadar() or toggleRadarPause() to resume');
+    }
+
+    /**
+     * Resume radar updates (after pause)
+     */
+    resume() {
+        if (!this.isPaused) {
+            console.log('▶️ Radar is not paused');
+            return;
+        }
+        this.isPaused = false;
+        if (this.isRunning && !this.updateInterval) {
+            this.startUpdateLoop();
+            console.log('▶️ Radar updates RESUMED');
+        }
+    }
+
+    /**
+     * Toggle pause state
+     */
+    togglePause() {
+        if (this.isPaused) {
+            this.resume();
+        } else {
+            this.pause();
         }
     }
 
