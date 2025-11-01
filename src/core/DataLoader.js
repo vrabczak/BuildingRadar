@@ -180,60 +180,95 @@ export class DataLoader {
                 });
             }
 
-            // Process all shapefiles in the folder incrementally
-            const result = await this.fileProcessor.loadShapefilesFromFolder(files);
+            // Group shapefiles once to know processing order
+            const shapefileGroups = this.fileProcessor.groupShapefilesByName(files);
+            console.log(`Found ${shapefileGroups.length} shapefiles in folder`);
+
+            if (shapefileGroups.length === 0) {
+                throw new Error('No valid shapefiles found in the selected folder');
+            }
+
+            this.spatialIndex = new SpatialIndex();
+            const chunkBoundaries = [];
+
+            // Stream each shapefile into the spatial index without keeping all copies
+            for (let i = 0; i < shapefileGroups.length; i++) {
+                const group = shapefileGroups[i];
+                this.ui.showStatus(`Processing shapefile ${i + 1}/${shapefileGroups.length}: ${group.name}`, 'loading');
+                console.log(`📂 Processing shapefile ${i + 1}/${shapefileGroups.length}: ${group.name}`);
+
+                try {
+                    const geojson = await this.fileProcessor.parseShapefileGroup(group);
+
+                    if (geojson && Array.isArray(geojson.features) && geojson.features.length > 0) {
+                        const startIndex = this.spatialIndex.allFeatures.length;
+
+                        const taggedFeatures = geojson.features.map(feature => ({
+                            ...feature,
+                            properties: {
+                                ...feature.properties,
+                                _sourceShapefile: group.name
+                            }
+                        }));
+
+                        for (const feature of taggedFeatures) {
+                            this.spatialIndex.addFeature(feature);
+                        }
+
+                        const endIndex = this.spatialIndex.allFeatures.length;
+                        chunkBoundaries.push({
+                            start: startIndex,
+                            end: endIndex,
+                            shapefileName: group.name
+                        });
+
+                        console.log(`  ✓ Indexed ${endIndex - startIndex} features from ${group.name}`);
+                    }
+
+                    if (DeviceUtils.isMobileDevice()) {
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
+                } catch (error) {
+                    console.warn(`  ⚠️ Skipping ${group.name}: ${error.message}`);
+                }
+            }
+
+            const featureCount = this.spatialIndex.getFeatureCount();
 
             if (window.crashLogger) {
                 window.crashLogger.logEvent('FOLDER_LOAD_COMPLETE', {
-                    featureCount: result.combinedGeoJSON.features?.length || 0,
-                    shapefileCount: result.featuresByShapefile.length
+                    featureCount,
+                    shapefileCount: chunkBoundaries.length
                 });
             }
 
-            // Build spatial index directly (memory-efficient)
-            this.ui.showStatus('Building spatial index...', 'loading');
-            console.log('Building spatial index from features...');
+            console.log(`Indexed ${featureCount} features from ${chunkBoundaries.length} shapefiles, memory:`, DeviceUtils.checkMemory());
 
-            this.spatialIndex = new SpatialIndex();
-            const geojson = this.fileProcessor.convertToGeoJSON(result.combinedGeoJSON);
+            if (featureCount === 0) {
+                throw new Error('No features could be loaded from any shapefile');
+            }
 
-            // Index features (this is fast and memory-efficient)
-            this.spatialIndex.indexFeatures(geojson);
-            const featureCount = this.spatialIndex.getFeatureCount();
-
-            console.log(`Indexed ${featureCount} features from ${result.featuresByShapefile.length} shapefiles, memory:`, DeviceUtils.checkMemory());
-
-            // Save spatial index to IndexedDB (chunked by shapefile for optimal spatial locality)
             this.ui.showStatus('Preparing to save...', 'loading');
             if (window.crashLogger) {
                 window.crashLogger.logEvent('SAVING_SPATIAL_INDEX', {
                     featureCount,
-                    shapefileCount: result.featuresByShapefile.length
+                    shapefileCount: chunkBoundaries.length
                 });
             }
 
-            // Calculate chunk boundaries based on shapefile organization
-            const chunkBoundaries = [];
-            let currentIndex = 0;
-            for (const sf of result.featuresByShapefile) {
-                chunkBoundaries.push({
-                    start: currentIndex,
-                    end: currentIndex + sf.features.length,
-                    shapefileName: sf.shapefileName
-                });
-                currentIndex += sf.features.length;
-            }
             console.log(`🗂️ Chunk boundaries:`, chunkBoundaries.map(cb => `${cb.shapefileName}: [${cb.start}-${cb.end})`).join(', '));
 
             const indexData = this.spatialIndex.serialize(chunkBoundaries);
 
-            // Create chunks based on shapefile boundaries (each shapefile = one chunk)
-            const featureChunks = result.featuresByShapefile.map(sf => sf.features);
-            console.log(`📦 Created ${featureChunks.length} chunks (one per shapefile)`);
+            const getChunk = async (chunkId) => {
+                const boundary = chunkBoundaries[chunkId];
+                if (!boundary) {
+                    return [];
+                }
+                return this.spatialIndex.getFeatureRange(boundary.start, boundary.end);
+            };
 
-            // Save with progress callback
-            await this.storage.saveSpatialIndex(indexData, featureChunks, this.currentFileMetadata, (progress) => {
-                // Update UI with progress
+            await this.storage.saveSpatialIndexStreaming(indexData, chunkBoundaries.length, getChunk, this.currentFileMetadata, (progress) => {
                 if (progress.phase === 'init') {
                     this.ui.showStatus('Initializing storage...', 'loading');
                 } else if (progress.phase === 'saving') {
