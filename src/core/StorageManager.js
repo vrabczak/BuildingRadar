@@ -258,11 +258,6 @@ export class StorageManager {
                 totalChunks
             });
 
-            const batchSize = Math.max(1, StorageConfig.STREAM_BATCH_SIZE || 1);
-            const chunkBoundaries = indexData?.chunkBoundaries || [];
-            let pendingBatch = [];
-            let batchStartIndex = 0;
-
             for (let i = 0; i < totalChunks; i++) {
                 const chunk = await getChunk(i);
 
@@ -271,31 +266,18 @@ export class StorageManager {
                     continue;
                 }
 
-                if (pendingBatch.length === 0) {
-                    batchStartIndex = i;
-                }
-
-                pendingBatch.push(chunk);
-
                 if (progressCallback) {
-                    const boundary = chunkBoundaries[i];
                     progressCallback({
                         phase: 'saving',
                         current: i + 1,
-                        total: totalChunks,
-                        chunkName: boundary?.shapefileName
+                        total: totalChunks
                     });
                 }
 
-                if (pendingBatch.length === batchSize || i === totalChunks - 1) {
-                    const payload = pendingBatch.slice();
-                    await this.sendToWorker('saveChunkBatch', {
-                        startIndex: batchStartIndex,
-                        chunks: payload
-                    });
-                    console.log(`  ✅ Saved streaming batch ${batchStartIndex}-${batchStartIndex + payload.length - 1}`);
-                    pendingBatch = [];
-                }
+                await this.sendToWorker('saveChunkBatch', {
+                    startIndex: i,
+                    chunks: [chunk]
+                });
             }
 
             if (progressCallback) {
