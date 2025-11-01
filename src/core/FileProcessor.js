@@ -233,18 +233,12 @@ export class FileProcessor {
             buffers[ext] = await this.readFileAsArrayBuffer(file);
         }
 
-        // shpjs expects either a single buffer or an object with named buffers
+        // shpjs expects an object with named buffers: { shp, dbf, shx, prj }
         const shpModule = await import('shpjs');
-
-        if (buffers.dbf && buffers.shx) {
-            // If we have all components, combine them
-            const geojson = await shpModule.default(buffers.shp, buffers.dbf);
-            return geojson;
-        } else {
-            // Just the .shp file
-            const geojson = await shpModule.default(buffers.shp);
-            return geojson;
-        }
+        
+        // Pass the entire buffers object - shpjs will use what it needs
+        const geojson = await shpModule.default(buffers);
+        return geojson;
     }
 
     /**
