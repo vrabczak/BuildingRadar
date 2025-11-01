@@ -15,9 +15,10 @@ export class SpatialIndex {
         // Lazy loading support
         this.lazyMode = false;
         this.chunkMap = new Map(); // chunkId -> [features]
-        this.chunkMetadata = new Map(); // cellKey -> chunkId
+        this.chunkMetadata = new Map(); // cellKey -> [chunkIds]
         this.chunkBoundaries = []; // Array of {start, end, shapefileName} for variable-sized chunks
-        this.featureIndexMap = new Map(); // globalIndex -> {chunkId, localIndex} for O(1) lookup
+        this.featureToChunk = null; // Uint32Array mapping global index -> chunkId
+        this._lastChunkLookup = { chunkId: -1, start: -1, end: -1 };
         this.loadedChunks = new Set(); // Set of loaded chunkIds
         this.chunkCache = []; // LRU cache: [{id, lastAccess}]
         this.maxCachedChunks = StorageConfig.MAX_CACHED_CHUNKS; // Keep N chunks in memory
@@ -104,75 +105,51 @@ export class SpatialIndex {
 
         console.log(`🔍 Query at [${lat.toFixed(6)}, ${lon.toFixed(6)}], radius=${radius}m, cellRange=${cellRange}`);
 
-        // Collect needed chunks in lazy mode (based on degree tiles)
+        const cellsToCheck = [];
+        for (let dx = -cellRange; dx <= cellRange; dx++) {
+            for (let dy = -cellRange; dy <= cellRange; dy++) {
+                cellsToCheck.push(`${centerCellX + dx},${centerCellY + dy}`);
+            }
+        }
+
         if (this.lazyMode) {
             const neededChunks = new Set();
 
-            // Get current degree tile
-            const currentTile = this.getDegreeTile(lon, lat);
-            const [tileLat, tileLon] = currentTile.split(',').map(Number);
-
-            console.log(`🔍 Current position: [${lat.toFixed(6)}, ${lon.toFixed(6)}] → tile ${currentTile}`);
-
-            // DEBUG: Load ONLY current tile (neighbors disabled for debugging)
-            const tilesToLoad = [];
-            const checkTile = currentTile; // Only current tile
-            const chunkId = this.chunkMetadata.get(checkTile);
-
-            if (chunkId !== undefined) {
-                neededChunks.add(chunkId);
-                tilesToLoad.push(checkTile);
+            for (const cellKey of cellsToCheck) {
+                const chunkIds = this.getChunksForCell(cellKey);
+                chunkIds.forEach(id => neededChunks.add(id));
             }
 
-            // DISABLED FOR DEBUGGING: Load current tile + 8 neighbors (3x3 grid)
-            // for (let dLat = -1; dLat <= 1; dLat++) {
-            //     for (let dLon = -1; dLon <= 1; dLon++) {
-            //         const checkTile = `${tileLat + dLat},${tileLon + dLon}`;
-            //         const chunkId = this.chunkMetadata.get(checkTile);
-            //         if (chunkId !== undefined) {
-            //             neededChunks.add(chunkId);
-            //             tilesToLoad.push(checkTile);
-            //         }
-            //     }
-            // }
-
-            console.log(`📍 Tiles to load: [${tilesToLoad.join(', ')}]`);
             console.log(`📦 Need ${neededChunks.size} chunks for this query: [${Array.from(neededChunks).join(', ')}]`);
 
-            // Load needed chunks
             await this.ensureChunksLoaded(Array.from(neededChunks));
         }
 
         // Query features from loaded data
         let cellsChecked = 0;
         let cellsWithData = 0;
-        for (let dx = -cellRange; dx <= cellRange; dx++) {
-            for (let dy = -cellRange; dy <= cellRange; dy++) {
-                // Calculate neighbor cell using cell indices
-                const checkKey = `${centerCellX + dx},${centerCellY + dy}`;
+        for (const checkKey of cellsToCheck) {
+            const indices = this.grid.get(checkKey);
+            cellsChecked++;
 
-                const indices = this.grid.get(checkKey);
-                cellsChecked++;
+            // Debug: Log first few cells
+            if (cellsChecked <= 5) {
+                console.log(`  🔍 Cell ${checkKey}: ${indices ? indices.length + ' indices' : 'no data'}`);
+            }
 
-                // Debug: Log first few cells
-                if (cellsChecked <= 5) {
-                    console.log(`  🔍 Cell ${checkKey}: ${indices ? indices.length + ' indices' : 'no data'}`);
-                }
+            if (indices) cellsWithData++;
+            if (indices) {
+                for (const idx of indices) {
+                    const feature = this.getFeature(idx);
+                    if (feature) {
+                        const [fLon, fLat] = feature.geometry.coordinates;
+                        const distance = this.calculateDistance(lat, lon, fLat, fLon);
 
-                if (indices) cellsWithData++;
-                if (indices) {
-                    for (const idx of indices) {
-                        const feature = this.getFeature(idx);
-                        if (feature) {
-                            const [fLon, fLat] = feature.geometry.coordinates;
-                            const distance = this.calculateDistance(lat, lon, fLat, fLon);
-
-                            if (distance <= radius) {
-                                features.push({
-                                    ...feature,
-                                    distance
-                                });
-                            }
+                        if (distance <= radius) {
+                            features.push({
+                                ...feature,
+                                distance
+                            });
                         }
                     }
                 }
@@ -251,7 +228,9 @@ export class SpatialIndex {
         }
 
         // Build chunk metadata: map grid cells to chunk IDs based on shapefile boundaries
-        const chunkMetadata = this.buildChunkMetadataFromBoundaries(chunkBoundaries);
+        this.initializeChunkLookup(chunkBoundaries);
+
+        const chunkMetadata = this.buildChunkMetadata();
 
         // Store chunk boundaries on the instance for immediate use
         this.chunkBoundaries = chunkBoundaries;
@@ -270,55 +249,32 @@ export class SpatialIndex {
     }
 
     /**
-     * Build chunk metadata from explicit chunk boundaries
-     * Uses degree tiles from shapefile names (e.g., n48e022 -> "48,22")
-     * @param {Array} chunkBoundaries - Array of {start, end, shapefileName} objects
-     * @returns {Object} chunkMetadata mapping degreeTile -> chunkId
+     * Build chunk metadata by mapping grid cells to chunk IDs
+     * @returns {Object} chunkMetadata mapping cellKey -> [chunkIds]
      */
-    buildChunkMetadataFromBoundaries(chunkBoundaries) {
-        const chunkMetadata = {};
+    buildChunkMetadata() {
+        const metadata = {};
 
-        // Extract degree tile from each shapefile name
-        for (let chunkId = 0; chunkId < chunkBoundaries.length; chunkId++) {
-            const { shapefileName } = chunkBoundaries[chunkId];
-            const tileKey = this.extractDegreeTileFromName(shapefileName);
+        if (!this.featureToChunk) {
+            console.warn('buildChunkMetadata called before featureToChunk was initialized');
+            return metadata;
+        }
 
-            if (tileKey) {
-                chunkMetadata[tileKey] = chunkId;
-                console.log(`  📍 Chunk ${chunkId}: ${shapefileName} → tile ${tileKey} `);
-            } else {
-                console.warn(`⚠️ Could not extract tile from shapefile name: ${shapefileName} `);
+        for (const [cellKey, indices] of this.grid.entries()) {
+            const chunkSet = new Set();
+            for (const index of indices) {
+                if (index < this.featureToChunk.length) {
+                    chunkSet.add(this.featureToChunk[index]);
+                }
+            }
+
+            if (chunkSet.size > 0) {
+                metadata[cellKey] = Array.from(chunkSet);
             }
         }
 
-        console.log(`🗺️ Generated chunk metadata for ${Object.keys(chunkMetadata).length} degree tiles`);
-        return chunkMetadata;
-    }
-
-    /**
-     * Extract degree tile key from shapefile name (e.g., "n48e022" -> "48,22")
-     * @param {string} shapefileName - Shapefile name
-     * @returns {string|null} Tile key or null if parsing fails
-     */
-    extractDegreeTileFromName(shapefileName) {
-        // Match patterns like: n48e022, s12w034, N48E022, etc.
-        const match = shapefileName.match(/([ns])(\d+)([ew])(\d+)/i);
-        if (!match) return null;
-
-        const [, latDir, latDeg, lonDir, lonDeg] = match;
-        const lat = parseInt(latDeg) * (latDir.toLowerCase() === 's' ? -1 : 1);
-        const lon = parseInt(lonDeg) * (lonDir.toLowerCase() === 'w' ? -1 : 1);
-
-        return `${lat},${lon} `;
-    }
-
-    /**
-     * Get degree tile key for coordinates (integer degrees)
-     */
-    getDegreeTile(lon, lat) {
-        const tileLat = Math.floor(lat);
-        const tileLon = Math.floor(lon);
-        return `${tileLat},${tileLon} `;
+        console.log(`🗺️ Generated chunk metadata for ${Object.keys(metadata).length} grid cells`);
+        return metadata;
     }
 
     /**
@@ -348,6 +304,11 @@ export class SpatialIndex {
             this.grid.set(key, indices);
         }
 
+        if (data.chunkBoundaries) {
+            this.initializeChunkLookup(data.chunkBoundaries);
+            this.chunkBoundaries = data.chunkBoundaries;
+        }
+
         // Set chunk metadata for lazy loading
         if (data.chunkMetadata) {
             this.setChunkMetadata(data.chunkMetadata);
@@ -375,26 +336,8 @@ export class SpatialIndex {
      */
     getFeature(index) {
         if (this.lazyMode) {
-            // Find which variable-sized chunk contains this feature index
-            let chunkId = -1;
-            let localIndex = -1;
-
-            // Use chunk boundaries if available (variable-sized chunks)
-            if (this.chunkBoundaries && this.chunkBoundaries.length > 0) {
-                for (let i = 0; i < this.chunkBoundaries.length; i++) {
-                    const { start, end } = this.chunkBoundaries[i];
-                    if (index >= start && index < end) {
-                        chunkId = i;
-                        localIndex = index - start;
-                        break;
-                    }
-                }
-            } else {
-                // Fallback to fixed-size chunks
-                const chunkSize = StorageConfig.CHUNK_SIZE;
-                chunkId = Math.floor(index / chunkSize);
-                localIndex = index % chunkSize;
-            }
+            const lookup = this.resolveChunkForIndex(index);
+            const { chunkId, localIndex } = lookup;
 
             // Debug: Log first few getFeature attempts
             if (!this._getFeatureCallCount) this._getFeatureCallCount = 0;
@@ -511,14 +454,11 @@ export class SpatialIndex {
 
         for (let dx = -prefetchRange; dx <= prefetchRange; dx++) {
             for (let dy = -prefetchRange; dy <= prefetchRange; dy++) {
-                const checkKey = this.getCellKey(
-                    centerX + dx * this.cellSize,
-                    centerY + dy * this.cellSize
-                );
-                const chunkId = this.chunkMetadata.get(checkKey);
-                if (chunkId !== undefined && !this.loadedChunks.has(chunkId)) {
-                    prefetchChunks.add(chunkId);
-                }
+                const checkKey = `${centerX + dx},${centerY + dy}`;
+                const chunkIds = this.getChunksForCell(checkKey);
+                chunkIds
+                    .filter(id => !this.loadedChunks.has(id))
+                    .forEach(id => prefetchChunks.add(id));
             }
         }
 
@@ -534,8 +474,96 @@ export class SpatialIndex {
      * Set chunk metadata for lazy loading
      */
     setChunkMetadata(chunkMetadata) {
-        this.chunkMetadata = new Map(Object.entries(chunkMetadata));
+        const entries = chunkMetadata instanceof Map ? chunkMetadata.entries() : Object.entries(chunkMetadata || {});
+        this.chunkMetadata = new Map();
+
+        for (const [key, value] of entries) {
+            if (Array.isArray(value)) {
+                this.chunkMetadata.set(key, value);
+            } else if (value !== undefined && value !== null) {
+                this.chunkMetadata.set(key, [value]);
+            }
+        }
+
         console.log(`Chunk metadata loaded: ${this.chunkMetadata.size} grid cells mapped to chunks`);
+    }
+
+    /**
+     * Build or rebuild quick lookup tables for chunk boundaries
+     */
+    initializeChunkLookup(chunkBoundaries) {
+        if (!chunkBoundaries || chunkBoundaries.length === 0) {
+            this.featureToChunk = null;
+            this._lastChunkLookup = { chunkId: -1, start: -1, end: -1 };
+            return;
+        }
+
+        const totalFeatures = chunkBoundaries.reduce((max, boundary) => Math.max(max, boundary.end), 0);
+        if (totalFeatures > this.featureCount) {
+            this.featureCount = totalFeatures;
+        }
+        this.featureToChunk = new Uint32Array(totalFeatures);
+
+        chunkBoundaries.forEach(({ start, end }, chunkId) => {
+            for (let i = start; i < end; i++) {
+                this.featureToChunk[i] = chunkId;
+            }
+        });
+
+        this._lastChunkLookup = { chunkId: -1, start: -1, end: -1 };
+    }
+
+    /**
+     * Resolve chunk information for a feature index using lookup cache
+     */
+    resolveChunkForIndex(index) {
+        if (this._lastChunkLookup.chunkId >= 0 && index >= this._lastChunkLookup.start && index < this._lastChunkLookup.end) {
+            const { chunkId, start } = this._lastChunkLookup;
+            return { chunkId, localIndex: index - start };
+        }
+
+        let chunkId = -1;
+        let localIndex = -1;
+
+        if (this.featureToChunk && index < this.featureToChunk.length) {
+            chunkId = this.featureToChunk[index];
+            const boundary = this.chunkBoundaries[chunkId];
+            if (boundary) {
+                this._lastChunkLookup = { chunkId, start: boundary.start, end: boundary.end };
+                localIndex = index - boundary.start;
+            } else {
+                chunkId = -1;
+                localIndex = -1;
+            }
+        } else if (this.chunkBoundaries && this.chunkBoundaries.length > 0) {
+            for (let i = 0; i < this.chunkBoundaries.length; i++) {
+                const { start, end } = this.chunkBoundaries[i];
+                if (index >= start && index < end) {
+                    chunkId = i;
+                    localIndex = index - start;
+                    this._lastChunkLookup = { chunkId, start, end };
+                    break;
+                }
+            }
+        } else {
+            const chunkSize = StorageConfig.CHUNK_SIZE;
+            chunkId = Math.floor(index / chunkSize);
+            const start = chunkId * chunkSize;
+            const end = start + chunkSize;
+            localIndex = index - start;
+            this._lastChunkLookup = { chunkId, start, end };
+        }
+
+        return { chunkId, localIndex };
+    }
+
+    /**
+     * Get chunk IDs mapped to a given cell key
+     */
+    getChunksForCell(cellKey) {
+        const entry = this.chunkMetadata.get(cellKey);
+        if (!entry) return [];
+        return Array.isArray(entry) ? entry : [entry];
     }
 
     /**
