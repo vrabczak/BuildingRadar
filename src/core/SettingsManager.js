@@ -7,6 +7,7 @@ import shp from 'shpjs';
 export const StorageConfig = {
     // Feature chunking
     CHUNK_SIZE: 1000,              // Number of features per chunk (affects memory usage)
+    CHUNK_DEGREE_SIZE: 0.1,        // Spatial chunk size in degrees (~11km at equator)
 
     // Network/Worker batching
     STREAM_BATCH_SIZE: 10,          // Number of chunks sent per postMessage to worker
