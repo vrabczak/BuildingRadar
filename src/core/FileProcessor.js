@@ -137,7 +137,17 @@ export class FileProcessor {
                     });
 
                     // Add to combined collection
-                    combinedGeoJSON.features.push(...taggedFeatures);
+                    // Avoid using spread syntax with very large arrays which
+                    // causes "Maximum call stack size exceeded" errors when
+                    // the browser attempts to apply each element as an
+                    // argument to Array.prototype.push. Some of our
+                    // shapefiles contain hundreds of thousands of features,
+                    // so we append incrementally instead. This still preserves
+                    // chunk boundaries because each feature is appended in the
+                    // original order.
+                    for (const feature of taggedFeatures) {
+                        combinedGeoJSON.features.push(feature);
+                    }
                     console.log(`  ✓ Added ${taggedFeatures.length} features (total: ${combinedGeoJSON.features.length})`);
                 }
 
