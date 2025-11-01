@@ -57,6 +57,30 @@ export class DataLoader {
     }
 
     /**
+     * Build cache tuning options based on device and dataset characteristics
+     * @param {number} chunkCount
+     * @returns {Object}
+     */
+    getCacheTuningOptions(chunkCount) {
+        let deviceMemory = null;
+        try {
+            if (typeof navigator !== 'undefined' && typeof navigator.deviceMemory === 'number') {
+                deviceMemory = navigator.deviceMemory;
+            }
+        } catch (error) {
+            // Ignore navigator access issues (e.g., server-side rendering)
+        }
+
+        return {
+            deviceMemory,
+            isMobile: DeviceUtils.isMobileDevice(),
+            isOlderiPad: DeviceUtils.isOlderiPad(),
+            chunkCount,
+            maxCachedChunks: StorageConfig.MAX_CACHED_CHUNKS
+        };
+    }
+
+    /**
      * Restore buildings data from IndexedDB (spatial index format with lazy loading)
      */
     async restoreData() {
@@ -72,9 +96,12 @@ export class DataLoader {
                 this.spatialIndex.deserialize(result.indexData);
 
                 // Enable lazy loading with chunk loader
-                this.spatialIndex.enableLazyLoading(async (chunkIds) => {
+                const cacheOptions = this.getCacheTuningOptions(result.chunkCount);
+                const appliedCache = this.spatialIndex.enableLazyLoading(async (chunkIds) => {
                     return await this.storage.loadChunks(chunkIds);
-                });
+                }, cacheOptions);
+
+                console.log(`🧠 Applied chunk cache limit: ${appliedCache}`);
 
                 // Show stored data info
                 const metadata = result.metadata;
@@ -280,9 +307,12 @@ export class DataLoader {
             });
 
             // Enable lazy loading with chunk loader (needed for queries to work)
-            this.spatialIndex.enableLazyLoading(async (chunkIds) => {
+            const cacheOptions = this.getCacheTuningOptions(chunkBoundaries.length);
+            const appliedCache = this.spatialIndex.enableLazyLoading(async (chunkIds) => {
                 return await this.storage.loadChunks(chunkIds);
-            });
+            }, cacheOptions);
+
+            console.log(`🧠 Applied chunk cache limit: ${appliedCache}`);
 
             this.ui.showStatus(`✓ Loaded ${featureCount} buildings successfully!`, 'success');
 
@@ -402,9 +432,12 @@ export class DataLoader {
             });
 
             // Enable lazy loading with chunk loader (needed for queries to work)
-            this.spatialIndex.enableLazyLoading(async (chunkIds) => {
+            const cacheOptions = this.getCacheTuningOptions(chunkBoundaries.length);
+            const appliedCache = this.spatialIndex.enableLazyLoading(async (chunkIds) => {
                 return await this.storage.loadChunks(chunkIds);
-            });
+            }, cacheOptions);
+
+            console.log(`🧠 Applied chunk cache limit: ${appliedCache}`);
 
             this.ui.showStatus(`✓ Loaded ${featureCount} buildings successfully!`, 'success');
 

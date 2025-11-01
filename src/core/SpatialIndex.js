@@ -363,10 +363,18 @@ export class SpatialIndex {
     /**
      * Enable lazy loading mode
      */
-    enableLazyLoading(chunkLoader) {
+    enableLazyLoading(chunkLoader, cacheOptions = null) {
         this.lazyMode = true;
         this.chunkLoader = chunkLoader;
         console.log('Lazy loading enabled with chunk loader');
+
+        if (cacheOptions) {
+            const appliedLimit = this.tuneChunkCache(cacheOptions);
+            console.log(`Adaptive chunk cache limit: ${appliedLimit}`);
+            return appliedLimit;
+        }
+
+        return this.maxCachedChunks;
     }
 
     /**
@@ -424,7 +432,9 @@ export class SpatialIndex {
      * Evict least recently used chunks
      */
     evictOldChunks() {
-        if (this.chunkCache.length <= this.maxCachedChunks) return;
+        if (this.chunkCache.length <= this.maxCachedChunks) {
+            return;
+        }
 
         // Sort by last access time
         this.chunkCache.sort((a, b) => a.lastAccess - b.lastAccess);
@@ -437,7 +447,7 @@ export class SpatialIndex {
             this.loadedChunks.delete(id);
         }
 
-        console.log(`Evicted ${toRemove.length} chunks from cache`);
+        console.log(`Evicted ${toRemove.length} chunks from cache (limit ${this.maxCachedChunks})`);
     }
 
     /**

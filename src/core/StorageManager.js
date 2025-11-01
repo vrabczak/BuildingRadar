@@ -171,39 +171,47 @@ export class StorageManager {
             });
             console.log('✅ Save initialized');
 
-            // Step 2: Save chunks one by one with detailed logging
-            console.log(`📦 Step 2/3: Saving ${featureChunks.length} chunks one by one...`);
+            // Step 2: Save chunks in batches to reduce worker churn
+            console.log(`📦 Step 2/3: Saving ${featureChunks.length} chunks in batches...`);
 
-            for (let i = 0; i < featureChunks.length; i++) {
-                const chunk = featureChunks[i];
-                const chunkBoundary = indexData.chunkBoundaries ? indexData.chunkBoundaries[i] : null;
+            const batchSize = Math.max(1, StorageConfig.STREAM_BATCH_SIZE || 1);
+            let savedCount = 0;
 
-                // Log chunk metadata
-                const chunkInfo = {
-                    id: i,
-                    featureCount: chunk.length,
-                    shapefileName: chunkBoundary?.shapefileName || 'unknown',
-                    indexRange: chunkBoundary ? `[${chunkBoundary.start}-${chunkBoundary.end})` : 'unknown'
-                };
+            for (let startIndex = 0; startIndex < featureChunks.length; startIndex += batchSize) {
+                const endIndex = Math.min(startIndex + batchSize, featureChunks.length);
+                const batch = featureChunks.slice(startIndex, endIndex);
+                const chunkSummaries = [];
 
-                console.log(`  📦 Saving chunk ${i}/${featureChunks.length}: ${chunkInfo.shapefileName}, ${chunkInfo.featureCount} features, range ${chunkInfo.indexRange}`);
-
-                // Update progress
-                if (progressCallback) {
-                    progressCallback({
-                        phase: 'saving',
-                        current: i + 1,
-                        total: featureChunks.length,
-                        chunkName: chunkInfo.shapefileName
-                    });
+                for (let i = startIndex; i < endIndex; i++) {
+                    const chunk = featureChunks[i];
+                    const chunkBoundary = indexData.chunkBoundaries ? indexData.chunkBoundaries[i] : null;
+                    const chunkInfo = {
+                        id: i,
+                        featureCount: chunk.length,
+                        shapefileName: chunkBoundary?.shapefileName || 'unknown',
+                        indexRange: chunkBoundary ? `[${chunkBoundary.start}-${chunkBoundary.end})` : 'unknown'
+                    };
+                    chunkSummaries.push(chunkInfo);
+                    console.log(`  📦 Saving chunk ${i}/${featureChunks.length}: ${chunkInfo.shapefileName}, ${chunkInfo.featureCount} features, range ${chunkInfo.indexRange}`);
                 }
 
                 await this.sendToWorker('saveChunkBatch', {
-                    startIndex: i,
-                    chunks: [chunk]
+                    startIndex,
+                    chunks: batch
                 });
 
-                console.log(`  ✅ Chunk ${i} saved (${i + 1}/${featureChunks.length})`);
+                savedCount = endIndex;
+                const lastSummary = chunkSummaries[chunkSummaries.length - 1];
+                console.log(`  ✅ Saved chunks ${startIndex}-${endIndex - 1}`);
+
+                if (progressCallback) {
+                    progressCallback({
+                        phase: 'saving',
+                        current: savedCount,
+                        total: featureChunks.length,
+                        chunkName: lastSummary?.shapefileName
+                    });
+                }
             }
 
             // Step 3: Finalize

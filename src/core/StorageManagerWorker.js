@@ -175,34 +175,57 @@ function loadSpatialIndex() {
 }
 
 function loadChunks(chunkIds) {
-    return new Promise(async (resolve, reject) => {
+    return new Promise((resolve, reject) => {
         if (!db) { reject(new Error('DB not initialized')); return; }
 
         try {
-            const transaction = db.transaction([STORE_NAME], 'readonly');
-            const store = transaction.objectStore(STORE_NAME);
-            const chunks = [];
+            const uniqueIds = Array.isArray(chunkIds)
+                ? Array.from(new Set(chunkIds.filter(id => id !== null && id !== undefined)))
+                : [];
 
-            console.log(`[Worker] Loading chunks: ${chunkIds.join(',')}`);
-
-            for (const chunkId of chunkIds) {
-                const key = FEATURES_PREFIX + chunkId;
-                const request = store.get(key);
-                const chunkRecord = await new Promise((res, rej) => {
-                    request.onsuccess = () => res(request.result);
-                    request.onerror = () => rej(request.error);
-                });
-
-                if (chunkRecord && chunkRecord.data) {
-                    console.log(`[Worker] Chunk ${chunkId}: ${chunkRecord.data.length} features`);
-                    chunks.push({ id: chunkId, features: chunkRecord.data });
-                } else {
-                    console.warn(`[Worker] Chunk ${chunkId} not found or empty! Key: ${key}`);
-                }
+            if (uniqueIds.length === 0) {
+                resolve([]);
+                return;
             }
 
-            console.log(`[Worker] Returning ${chunks.length} chunks with total features: ${chunks.reduce((sum, c) => sum + c.features.length, 0)}`);
-            resolve(chunks);
+            console.log(`[Worker] Loading chunks: ${uniqueIds.join(',')}`);
+
+            const transaction = db.transaction([STORE_NAME], 'readonly');
+            const store = transaction.objectStore(STORE_NAME);
+
+            transaction.onerror = () => {
+                reject(transaction.error);
+            };
+
+            const requests = uniqueIds.map((chunkId) => new Promise((res, rej) => {
+                const key = FEATURES_PREFIX + chunkId;
+                const request = store.get(key);
+
+                request.onsuccess = () => {
+                    const record = request.result;
+                    if (record && record.data) {
+                        console.log(`[Worker] Chunk ${chunkId}: ${record.data.length} features`);
+                        res({ id: chunkId, features: record.data });
+                    } else {
+                        console.warn(`[Worker] Chunk ${chunkId} not found or empty! Key: ${key}`);
+                        res(null);
+                    }
+                };
+
+                request.onerror = () => rej(request.error);
+            }));
+
+            Promise.all(requests)
+                .then(results => {
+                    const chunks = results.filter(Boolean);
+                    const totalFeatures = chunks.reduce((sum, chunk) => sum + (chunk.features?.length || 0), 0);
+                    console.log(`[Worker] Returning ${chunks.length} chunks with total features: ${totalFeatures}`);
+                    resolve(chunks);
+                })
+                .catch(error => {
+                    console.error('[Worker] Error loading chunks:', error);
+                    reject(error);
+                });
         } catch (error) {
             console.error('[Worker] Error loading chunks:', error);
             reject(error);
