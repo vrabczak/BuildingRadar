@@ -224,6 +224,70 @@ export class StorageManager {
     }
 
     /**
+     * Save spatial index using a streaming chunk provider to avoid duplicating feature arrays in memory
+     * @param {Object} indexData - Serialized index data
+     * @param {number} totalChunks - Total number of chunks expected
+     * @param {Function} getChunk - Async function returning features for a chunk index
+     * @param {Object} metadata - File metadata to persist alongside the index
+     * @param {Function|null} progressCallback - Optional progress reporter
+     */
+    async saveSpatialIndexStreaming(indexData, totalChunks, getChunk, metadata = {}, progressCallback = null) {
+        if (typeof getChunk !== 'function') {
+            throw new Error('saveSpatialIndexStreaming requires a chunk provider function');
+        }
+
+        try {
+            console.log(`💾 Starting streaming save for ${totalChunks} chunks`);
+            const startTime = performance.now();
+
+            if (progressCallback) {
+                progressCallback({ phase: 'init', total: totalChunks });
+            }
+
+            await this.sendToWorker('initSave', {
+                indexData,
+                metadata,
+                totalChunks
+            });
+
+            for (let i = 0; i < totalChunks; i++) {
+                const chunk = await getChunk(i);
+
+                if (!Array.isArray(chunk)) {
+                    console.warn(`Chunk provider returned non-array for chunk ${i}`);
+                    continue;
+                }
+
+                if (progressCallback) {
+                    progressCallback({
+                        phase: 'saving',
+                        current: i + 1,
+                        total: totalChunks
+                    });
+                }
+
+                await this.sendToWorker('saveChunkBatch', {
+                    startIndex: i,
+                    chunks: [chunk]
+                });
+            }
+
+            if (progressCallback) {
+                progressCallback({ phase: 'finalizing' });
+            }
+
+            await this.sendToWorker('finalizeSave');
+
+            const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+            console.log(`✅ Streaming spatial index save complete in ${elapsed}s`);
+            return true;
+        } catch (error) {
+            console.error('❌ Failed streaming spatial index save:', error);
+            return false;
+        }
+    }
+
+    /**
      * Load spatial index (lazy mode - without features)
      */
     async loadSpatialIndex() {
