@@ -237,6 +237,12 @@ export class FileProcessor {
             }
         }
 
+        // Debug: log what we're passing to shpjs
+        console.log(`  Buffers to parse: ${Object.keys(buffers).join(', ')}`);
+        Object.entries(buffers).forEach(([key, buffer]) => {
+            console.log(`    ${key}: ${buffer.byteLength} bytes, type: ${buffer.constructor.name}`);
+        });
+
         // shpjs expects an object with named buffers: { shp, dbf, prj, cpg }
         const shpModule = await import('shpjs');
 
