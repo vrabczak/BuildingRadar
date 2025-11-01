@@ -211,12 +211,27 @@ export class SpatialIndex {
 
             const index = this.allFeatures.length;
             this.allFeatures.push(feature);
+            this.featureCount = this.allFeatures.length;
 
             if (!this.grid.has(key)) {
                 this.grid.set(key, []);
             }
             this.grid.get(key).push(index);
         }
+    }
+
+    /**
+     * Get a shallow copy of features for a specific range (used for streaming saves)
+     * @param {number} start - Inclusive start index
+     * @param {number} end - Exclusive end index
+     * @returns {Array} Array of feature objects
+     */
+    getFeatureRange(start, end) {
+        if (start < 0 || end > this.allFeatures.length || start > end) {
+            console.warn(`getFeatureRange called with invalid bounds [${start}, ${end})`);
+            return [];
+        }
+        return this.allFeatures.slice(start, end);
     }
 
     /**
