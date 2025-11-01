@@ -228,28 +228,82 @@ export class DataLoader {
                     const geojson = await this.fileProcessor.parseShapefileGroup(group);
 
                     if (geojson && Array.isArray(geojson.features) && geojson.features.length > 0) {
-                        const startIndex = this.spatialIndex.allFeatures.length;
+                        const shapefileStart = this.spatialIndex.allFeatures.length;
+                        const chunkGroups = new Map();
+                        const chunkSizeDeg = StorageConfig.CHUNK_DEGREE_SIZE || 0.1;
 
-                        const taggedFeatures = geojson.features.map(feature => ({
-                            ...feature,
-                            properties: {
-                                ...feature.properties,
-                                _sourceShapefile: group.name
+                        for (const feature of geojson.features) {
+                            if (!feature || feature.geometry?.type !== 'Point') {
+                                continue;
                             }
-                        }));
 
-                        for (const feature of taggedFeatures) {
-                            this.spatialIndex.addFeature(feature);
+                            const [lon, lat] = feature.geometry.coordinates || [];
+                            if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+                                continue;
+                            }
+
+                            const taggedFeature = {
+                                ...feature,
+                                properties: {
+                                    ...feature.properties,
+                                    _sourceShapefile: group.name
+                                }
+                            };
+
+                            const chunkX = Math.floor(lon / chunkSizeDeg);
+                            const chunkY = Math.floor(lat / chunkSizeDeg);
+                            const chunkKey = `${chunkX},${chunkY}`;
+
+                            if (!chunkGroups.has(chunkKey)) {
+                                chunkGroups.set(chunkKey, []);
+                            }
+                            chunkGroups.get(chunkKey).push(taggedFeature);
                         }
 
-                        const endIndex = this.spatialIndex.allFeatures.length;
-                        chunkBoundaries.push({
-                            start: startIndex,
-                            end: endIndex,
-                            shapefileName: group.name
+                        const sortedChunkKeys = Array.from(chunkGroups.keys()).sort((a, b) => {
+                            const [ax, ay] = a.split(',').map(Number);
+                            const [bx, by] = b.split(',').map(Number);
+                            if (ax === bx) {
+                                return ay - by;
+                            }
+                            return ax - bx;
                         });
 
-                        console.log(`  ✓ Indexed ${endIndex - startIndex} features from ${group.name}`);
+                        let shapefileChunks = 0;
+
+                        for (const chunkKey of sortedChunkKeys) {
+                            const featuresInChunk = chunkGroups.get(chunkKey);
+                            if (!featuresInChunk || featuresInChunk.length === 0) {
+                                continue;
+                            }
+
+                            const chunkStart = this.spatialIndex.allFeatures.length;
+
+                            for (const feature of featuresInChunk) {
+                                this.spatialIndex.addFeature(feature);
+                            }
+
+                            const chunkEnd = this.spatialIndex.allFeatures.length;
+
+                            if (chunkEnd > chunkStart) {
+                                const chunkLabel = chunkKey.replace(',', '_');
+                                chunkBoundaries.push({
+                                    start: chunkStart,
+                                    end: chunkEnd,
+                                    shapefileName: `${group.name}_${chunkLabel}`
+                                });
+                                shapefileChunks++;
+                            }
+                        }
+
+                        const shapefileEnd = this.spatialIndex.allFeatures.length;
+                        const shapefileFeatureCount = shapefileEnd - shapefileStart;
+
+                        if (shapefileFeatureCount === 0) {
+                            console.warn(`  ⚠️ No point features indexed from ${group.name}`);
+                        } else {
+                            console.log(`  ✓ Indexed ${shapefileFeatureCount} features from ${group.name} across ${shapefileChunks} chunks`);
+                        }
                     }
 
                     if (DeviceUtils.isMobileDevice()) {
@@ -265,11 +319,12 @@ export class DataLoader {
             if (window.crashLogger) {
                 window.crashLogger.logEvent('FOLDER_LOAD_COMPLETE', {
                     featureCount,
-                    shapefileCount: chunkBoundaries.length
+                    shapefileCount: shapefileGroups.length,
+                    chunkCount: chunkBoundaries.length
                 });
             }
 
-            console.log(`Indexed ${featureCount} features from ${chunkBoundaries.length} shapefiles, memory:`, DeviceUtils.checkMemory());
+            console.log(`Indexed ${featureCount} features from ${shapefileGroups.length} shapefiles across ${chunkBoundaries.length} chunks, memory:`, DeviceUtils.checkMemory());
 
             if (featureCount === 0) {
                 throw new Error('No features could be loaded from any shapefile');
@@ -279,7 +334,8 @@ export class DataLoader {
             if (window.crashLogger) {
                 window.crashLogger.logEvent('SAVING_SPATIAL_INDEX', {
                     featureCount,
-                    shapefileCount: chunkBoundaries.length
+                    shapefileCount: shapefileGroups.length,
+                    chunkCount: chunkBoundaries.length
                 });
             }
 
