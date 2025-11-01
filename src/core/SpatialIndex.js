@@ -320,19 +320,35 @@ export class SpatialIndex {
      */
     getFeature(index) {
         if (this.lazyMode) {
-            // Calculate which chunk contains this feature
-            const chunkSize = StorageConfig.CHUNK_SIZE;
-            const chunkId = Math.floor(index / chunkSize);
-            const localIndex = index % chunkSize;
+            // Find which variable-sized chunk contains this feature index
+            let chunkId = -1;
+            let localIndex = -1;
+
+            // Use chunk boundaries if available (variable-sized chunks)
+            if (this.chunkBoundaries && this.chunkBoundaries.length > 0) {
+                for (let i = 0; i < this.chunkBoundaries.length; i++) {
+                    const { start, end } = this.chunkBoundaries[i];
+                    if (index >= start && index < end) {
+                        chunkId = i;
+                        localIndex = index - start;
+                        break;
+                    }
+                }
+            } else {
+                // Fallback to fixed-size chunks
+                const chunkSize = StorageConfig.CHUNK_SIZE;
+                chunkId = Math.floor(index / chunkSize);
+                localIndex = index % chunkSize;
+            }
 
             // Debug: Log first lazy load attempt
             if (!this._loggedFirstGetFeature) {
-                console.log('📄 First getFeature call: index=' + index + ', chunkId=' + chunkId + ', chunkLoaded=' + this.loadedChunks.has(chunkId));
+                console.log('📄 First getFeature call: index=' + index + ', chunkId=' + chunkId + ', localIndex=' + localIndex + ', chunkLoaded=' + this.loadedChunks.has(chunkId));
                 this._loggedFirstGetFeature = true;
             }
 
             // Check if chunk is loaded
-            if (this.loadedChunks.has(chunkId)) {
+            if (chunkId >= 0 && this.loadedChunks.has(chunkId)) {
                 const features = this.chunkMap.get(chunkId);
                 return features ? features[localIndex] : null;
             }

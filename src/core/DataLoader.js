@@ -233,6 +233,11 @@ export class DataLoader {
 
             await this.storage.saveSpatialIndex(indexData, featureChunks, this.currentFileMetadata);
 
+            // Enable lazy loading with chunk loader (needed for queries to work)
+            this.spatialIndex.enableLazyLoading(async (chunkIds) => {
+                return await this.storage.loadChunks(chunkIds);
+            });
+
             this.ui.showStatus(`✓ Loaded ${featureCount} buildings successfully!`, 'success');
 
             setTimeout(() => {
@@ -339,6 +344,11 @@ export class DataLoader {
             console.log(`📦 Created 1 chunk (entire file)`);
 
             await this.storage.saveSpatialIndex(indexData, featureChunks, this.currentFileMetadata);
+
+            // Enable lazy loading with chunk loader (needed for queries to work)
+            this.spatialIndex.enableLazyLoading(async (chunkIds) => {
+                return await this.storage.loadChunks(chunkIds);
+            });
 
             this.ui.showStatus(`✓ Loaded ${featureCount} buildings successfully!`, 'success');
 
