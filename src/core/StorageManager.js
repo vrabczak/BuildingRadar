@@ -171,39 +171,47 @@ export class StorageManager {
             });
             console.log('✅ Save initialized');
 
-            // Step 2: Save chunks one by one with detailed logging
-            console.log(`📦 Step 2/3: Saving ${featureChunks.length} chunks one by one...`);
+            // Step 2: Save chunks in batches to reduce worker churn
+            console.log(`📦 Step 2/3: Saving ${featureChunks.length} chunks in batches...`);
 
-            for (let i = 0; i < featureChunks.length; i++) {
-                const chunk = featureChunks[i];
-                const chunkBoundary = indexData.chunkBoundaries ? indexData.chunkBoundaries[i] : null;
+            const batchSize = Math.max(1, StorageConfig.STREAM_BATCH_SIZE || 1);
+            let savedCount = 0;
 
-                // Log chunk metadata
-                const chunkInfo = {
-                    id: i,
-                    featureCount: chunk.length,
-                    shapefileName: chunkBoundary?.shapefileName || 'unknown',
-                    indexRange: chunkBoundary ? `[${chunkBoundary.start}-${chunkBoundary.end})` : 'unknown'
-                };
+            for (let startIndex = 0; startIndex < featureChunks.length; startIndex += batchSize) {
+                const endIndex = Math.min(startIndex + batchSize, featureChunks.length);
+                const batch = featureChunks.slice(startIndex, endIndex);
+                const chunkSummaries = [];
 
-                console.log(`  📦 Saving chunk ${i}/${featureChunks.length}: ${chunkInfo.shapefileName}, ${chunkInfo.featureCount} features, range ${chunkInfo.indexRange}`);
-
-                // Update progress
-                if (progressCallback) {
-                    progressCallback({
-                        phase: 'saving',
-                        current: i + 1,
-                        total: featureChunks.length,
-                        chunkName: chunkInfo.shapefileName
-                    });
+                for (let i = startIndex; i < endIndex; i++) {
+                    const chunk = featureChunks[i];
+                    const chunkBoundary = indexData.chunkBoundaries ? indexData.chunkBoundaries[i] : null;
+                    const chunkInfo = {
+                        id: i,
+                        featureCount: chunk.length,
+                        shapefileName: chunkBoundary?.shapefileName || 'unknown',
+                        indexRange: chunkBoundary ? `[${chunkBoundary.start}-${chunkBoundary.end})` : 'unknown'
+                    };
+                    chunkSummaries.push(chunkInfo);
+                    console.log(`  📦 Saving chunk ${i}/${featureChunks.length}: ${chunkInfo.shapefileName}, ${chunkInfo.featureCount} features, range ${chunkInfo.indexRange}`);
                 }
 
                 await this.sendToWorker('saveChunkBatch', {
-                    startIndex: i,
-                    chunks: [chunk]
+                    startIndex,
+                    chunks: batch
                 });
 
-                console.log(`  ✅ Chunk ${i} saved (${i + 1}/${featureChunks.length})`);
+                savedCount = endIndex;
+                const lastSummary = chunkSummaries[chunkSummaries.length - 1];
+                console.log(`  ✅ Saved chunks ${startIndex}-${endIndex - 1}`);
+
+                if (progressCallback) {
+                    progressCallback({
+                        phase: 'saving',
+                        current: savedCount,
+                        total: featureChunks.length,
+                        chunkName: lastSummary?.shapefileName
+                    });
+                }
             }
 
             // Step 3: Finalize
@@ -219,6 +227,88 @@ export class StorageManager {
         } catch (error) {
             console.error('❌ Failed to save spatial index:', error);
             console.error('Error stack:', error.stack);
+            return false;
+        }
+    }
+
+    /**
+     * Save spatial index using a streaming chunk provider to avoid duplicating feature arrays in memory
+     * @param {Object} indexData - Serialized index data
+     * @param {number} totalChunks - Total number of chunks expected
+     * @param {Function} getChunk - Async function returning features for a chunk index
+     * @param {Object} metadata - File metadata to persist alongside the index
+     * @param {Function|null} progressCallback - Optional progress reporter
+     */
+    async saveSpatialIndexStreaming(indexData, totalChunks, getChunk, metadata = {}, progressCallback = null) {
+        if (typeof getChunk !== 'function') {
+            throw new Error('saveSpatialIndexStreaming requires a chunk provider function');
+        }
+
+        try {
+            console.log(`💾 Starting streaming save for ${totalChunks} chunks`);
+            const startTime = performance.now();
+
+            if (progressCallback) {
+                progressCallback({ phase: 'init', total: totalChunks });
+            }
+
+            await this.sendToWorker('initSave', {
+                indexData,
+                metadata,
+                totalChunks
+            });
+
+            const batchSize = Math.max(1, StorageConfig.STREAM_BATCH_SIZE || 1);
+            const chunkBoundaries = indexData?.chunkBoundaries || [];
+            let pendingBatch = [];
+            let batchStartIndex = 0;
+
+            for (let i = 0; i < totalChunks; i++) {
+                const chunk = await getChunk(i);
+
+                if (!Array.isArray(chunk)) {
+                    console.warn(`Chunk provider returned non-array for chunk ${i}`);
+                    continue;
+                }
+
+                if (pendingBatch.length === 0) {
+                    batchStartIndex = i;
+                }
+
+                pendingBatch.push(chunk);
+
+                if (progressCallback) {
+                    const boundary = chunkBoundaries[i];
+                    progressCallback({
+                        phase: 'saving',
+                        current: i + 1,
+                        total: totalChunks,
+                        chunkName: boundary?.shapefileName
+                    });
+                }
+
+                if (pendingBatch.length === batchSize || i === totalChunks - 1) {
+                    const payload = pendingBatch.slice();
+                    await this.sendToWorker('saveChunkBatch', {
+                        startIndex: batchStartIndex,
+                        chunks: payload
+                    });
+                    console.log(`  ✅ Saved streaming batch ${batchStartIndex}-${batchStartIndex + payload.length - 1}`);
+                    pendingBatch = [];
+                }
+            }
+
+            if (progressCallback) {
+                progressCallback({ phase: 'finalizing' });
+            }
+
+            await this.sendToWorker('finalizeSave');
+
+            const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+            console.log(`✅ Streaming spatial index save complete in ${elapsed}s`);
+            return true;
+        } catch (error) {
+            console.error('❌ Failed streaming spatial index save:', error);
             return false;
         }
     }
