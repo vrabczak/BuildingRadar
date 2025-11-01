@@ -16,6 +16,7 @@ let updateCheckIntervalId = null;
 // Install event - cache resources
 self.addEventListener('install', (event) => {
     console.log('Service Worker installing...');
+    console.log('🔄 New version:', CACHE_NAME);
     event.waitUntil(
         caches.open(STATIC_CACHE_NAME)
             .then((cache) => {
