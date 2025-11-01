@@ -128,7 +128,10 @@ export class BuildingRadar {
      * Handle GPS position update
      */
     handlePositionUpdate(position) {
-        //console.log('Position update:', position);
+        // Skip updates if paused
+        if (this.isPaused) {
+            return;
+        }
 
         // Update display with new position
         this.display.updatePosition(position);

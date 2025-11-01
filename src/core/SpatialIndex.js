@@ -362,10 +362,15 @@ export class SpatialIndex {
                 localIndex = index % chunkSize;
             }
 
-            // Debug: Log first lazy load attempt
-            if (!this._loggedFirstGetFeature) {
-                console.log('📄 First getFeature call: index=' + index + ', chunkId=' + chunkId + ', localIndex=' + localIndex + ', chunkLoaded=' + this.loadedChunks.has(chunkId));
-                this._loggedFirstGetFeature = true;
+            // Debug: Log first few getFeature attempts
+            if (!this._getFeatureCallCount) this._getFeatureCallCount = 0;
+            if (this._getFeatureCallCount < 5) {
+                console.log(`📄 getFeature(${index}): chunkId=${chunkId}, localIndex=${localIndex}, loaded=${this.loadedChunks.has(chunkId)}`);
+                if (chunkId >= 0 && this.loadedChunks.has(chunkId)) {
+                    const features = this.chunkMap.get(chunkId);
+                    console.log(`  → Chunk ${chunkId} has ${features?.length || 0} features, getting index ${localIndex}`);
+                }
+                this._getFeatureCallCount++;
             }
 
             // Check if chunk is loaded
@@ -394,25 +399,27 @@ export class SpatialIndex {
         const toLoad = chunkIds.filter(id => !this.loadedChunks.has(id));
 
         if (toLoad.length > 0 && this.chunkLoader) {
-            console.log(`Loading ${toLoad.length} chunks...`);
+            console.log(`🔽 Loading ${toLoad.length} chunks: [${toLoad.join(', ')}]...`);
             const chunks = await this.chunkLoader(toLoad);
-            console.log(`📦 Loaded ${chunks.length} chunks from storage, total features:`, chunks.reduce((sum, c) => sum + (c.features?.length || 0), 0));
+            console.log(`📦 Received ${chunks.length} chunks from storage`);
 
             for (const { id, features } of chunks) {
                 if (!features) {
                     console.warn(`⚠️ Chunk ${id} has no features!`);
                     continue;
                 }
+                console.log(`  ✓ Chunk ${id}: ${features.length} features loaded`);
                 this.chunkMap.set(id, features);
                 this.loadedChunks.add(id);
                 this.updateChunkCache(id);
             }
 
-            console.log(`✅ Chunks loaded into memory. Total loaded: ${this.loadedChunks.size}`);
+            console.log(`✅ Chunks in memory: ${this.loadedChunks.size}, chunkMap size: ${this.chunkMap.size}`);
 
             // Evict old chunks if cache is full
             this.evictOldChunks();
-        } else {
+        } else if (toLoad.length === 0) {
+            console.log(`♻️ All ${chunkIds.length} chunks already loaded`);
             // Just update access time for already loaded chunks
             chunkIds.forEach(id => {
                 if (this.loadedChunks.has(id)) {
