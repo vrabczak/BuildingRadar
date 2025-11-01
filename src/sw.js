@@ -1,5 +1,5 @@
 // Dynamic cache name based on timestamp or build hash
-const CACHE_NAME = `building-radar-${Date.now()}`;
+const CACHE_NAME = 'building-radar-${__BUILD_HASH__}';
 const STATIC_CACHE_NAME = 'building-radar-static';
 const urlsToCache = [
     '/BuildingRadar/',

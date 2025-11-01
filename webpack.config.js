@@ -4,6 +4,9 @@ const HtmlInlineScriptPlugin = require('html-inline-script-webpack-plugin');
 const { LimitChunkCountPlugin } = require('webpack').optimize;
 const webpack = require('webpack');
 
+// Generate build hash for cache busting
+const BUILD_HASH = Date.now().toString();
+
 module.exports = {
     entry: './src/index.js',
     output: {
@@ -20,6 +23,9 @@ module.exports = {
     mode: 'production',
     devtool: false,
     plugins: [
+        new webpack.DefinePlugin({
+            __BUILD_HASH__: JSON.stringify(BUILD_HASH),
+        }),
         new HtmlWebpackPlugin({
             template: './src/index.html',
             filename: 'index.html',
