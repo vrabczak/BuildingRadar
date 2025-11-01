@@ -378,6 +378,61 @@ export class SpatialIndex {
     }
 
     /**
+     * Tune chunk cache size based on device and dataset characteristics
+     * @param {Object} cacheOptions
+     * @returns {number} applied cache limit
+     */
+    tuneChunkCache(cacheOptions) {
+        const {
+            deviceMemory = null,
+            isMobile = false,
+            isOlderiPad = false,
+            chunkCount = null,
+            maxCachedChunks = StorageConfig.MAX_CACHED_CHUNKS
+        } = cacheOptions || {};
+
+        let limit = typeof maxCachedChunks === 'number' && maxCachedChunks > 0
+            ? Math.floor(maxCachedChunks)
+            : StorageConfig.MAX_CACHED_CHUNKS;
+
+        // Dataset-aware adjustment: avoid caching more chunks than exist
+        if (typeof chunkCount === 'number' && chunkCount > 0) {
+            limit = Math.min(limit, Math.max(1, chunkCount));
+
+            // For very large datasets, use a heuristic of ~10% of chunks with sensible bounds
+            const heuristic = Math.max(3, Math.min(20, Math.ceil(chunkCount * 0.1)));
+            limit = Math.min(limit, heuristic);
+        }
+
+        // Device-specific reductions for constrained hardware
+        if (deviceMemory !== null && !Number.isNaN(deviceMemory)) {
+            if (deviceMemory <= 2) {
+                limit = Math.min(limit, 4);
+            } else if (deviceMemory <= 4) {
+                limit = Math.min(limit, 6);
+            } else if (deviceMemory >= 8) {
+                // Allow a bit more headroom on high-memory desktops
+                limit = Math.min(Math.max(limit, 12), chunkCount ? Math.max(12, Math.min(chunkCount, 20)) : 12);
+            }
+        }
+
+        if (isOlderiPad) {
+            limit = Math.min(limit, 4);
+        } else if (isMobile) {
+            limit = Math.min(limit, 6);
+        }
+
+        // Final clamp to valid range
+        if (typeof chunkCount === 'number' && chunkCount > 0) {
+            limit = Math.min(limit, chunkCount);
+        }
+        limit = Math.max(1, Math.min(50, limit));
+
+        this.maxCachedChunks = limit;
+        return this.maxCachedChunks;
+    }
+
+    /**
      * Ensure required chunks are loaded
      */
     async ensureChunksLoaded(chunkIds) {
